@@ -18,6 +18,8 @@ Existing recon tools are great at *discovery* but leave you to diff the output b
 difference, prioritizes what matters, and pushes a clean alert to Slack / Discord / any
 webhook.
 
+🌐 **[Landing page & live HTML report demo →](https://maruftak.github.io/reconsentry/)**
+
 ![reconsentry detecting a new host appearing on a target's attack surface](docs/demo.gif)
 
 > ⚠️ **Authorized use only.** Point `reconsentry` at assets you own or domains that are
@@ -159,6 +161,27 @@ can screenshot, share, or version-control.
 
 👉 **[See a rendered sample report](docs/sample-report.html)** (open the raw
 file — it's fully offline).
+
+### Run it in CI (GitHub Action)
+
+`reconsentry` ships a reusable composite action, so you can monitor on a schedule
+without hosting anything — commit the SQLite db back to persist history and
+upload the HTML report as a build artifact:
+
+```yaml
+- uses: maruftak/reconsentry@v1
+  with:
+    config: scope.yaml
+    db: reconsentry.db
+    args: --max-hosts 1000
+    report: surface.html
+  env:
+    SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+A full scheduled example is in [`examples/github-action.yml`](examples/github-action.yml).
+Use only on authorized targets, and keep notifier secrets in Actions secrets
+(referenced as `${ENV_NAME}` in the scope file).
 
 ### Inspect the current surface
 

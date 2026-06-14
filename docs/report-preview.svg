@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 360" font-family="ui-monospace,Menlo,Consolas,monospace">
+  <defs>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3ddc97"/><stop offset="1" stop-color="#4aa8ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="520" height="360" fill="#0b0f14"/>
+  <!-- header -->
+  <text x="20" y="30" fill="#e6edf3" font-size="13" font-weight="700">recon<tspan fill="#3ddc97">·</tspan>sentry</text>
+  <text x="500" y="30" fill="#8b9bb0" font-size="9" text-anchor="end">generated 2026-06-13 09:02 UTC</text>
+  <line x1="20" y1="42" x2="500" y2="42" stroke="#1e2935"/>
+  <text x="20" y="68" fill="#e6edf3" font-size="17" font-weight="700">Attack surface — <tspan fill="#3ddc97">acme-public</tspan></text>
+  <text x="20" y="84" fill="#8b9bb0" font-size="9.5" font-family="system-ui">git log for your attack surface — every change, since the baseline.</text>
+
+  <!-- KPI cards -->
+  <g font-family="ui-monospace,Menlo">
+    <rect x="20"  y="98" width="88" height="46" rx="8" fill="#121821" stroke="#1e2935"/>
+    <text x="34" y="126" fill="#e6edf3" font-size="20" font-weight="700">5</text>
+    <text x="34" y="138" fill="#8b9bb0" font-size="7.5" font-family="system-ui">HOSTS</text>
+    <rect x="116" y="98" width="88" height="46" rx="8" fill="#121821" stroke="#1e2935"/>
+    <text x="130" y="126" fill="#3ddc97" font-size="20" font-weight="700">4</text>
+    <text x="130" y="138" fill="#8b9bb0" font-size="7.5" font-family="system-ui">LIVE</text>
+    <rect x="212" y="98" width="88" height="46" rx="8" fill="#121821" stroke="#1e2935"/>
+    <text x="226" y="126" fill="#e6edf3" font-size="20" font-weight="700">7</text>
+    <text x="226" y="138" fill="#8b9bb0" font-size="7.5" font-family="system-ui">TECH</text>
+    <rect x="308" y="98" width="88" height="46" rx="8" fill="#121821" stroke="#1e2935"/>
+    <text x="322" y="126" fill="#e6edf3" font-size="20" font-weight="700">3</text>
+    <text x="322" y="138" fill="#8b9bb0" font-size="7.5" font-family="system-ui">RUNS</text>
+    <rect x="404" y="98" width="96" height="46" rx="8" fill="#121821" stroke="#1e2935"/>
+    <text x="418" y="126" fill="#e6edf3" font-size="20" font-weight="700">5</text>
+    <text x="418" y="138" fill="#8b9bb0" font-size="7.5" font-family="system-ui">CHANGES</text>
+  </g>
+
+  <text x="20" y="172" fill="#8b9bb0" font-size="9" letter-spacing="1.5" font-family="system-ui">SURFACE CHANGELOG</text>
+  <!-- timeline -->
+  <line x1="28" y1="182" x2="28" y2="332" stroke="#1e2935" stroke-width="2"/>
+
+  <circle cx="28" cy="192" r="5" fill="#3ddc97" stroke="#0b0f14" stroke-width="3"/>
+  <text x="44" y="190" fill="#8b9bb0" font-size="8.5">run #3 · 2026-06-13 09:00 UTC</text>
+  <text x="44" y="203" fill="#e6edf3" font-size="9.5" font-weight="700" font-family="system-ui"><tspan font-family="ui-monospace">2</tspan> change(s) · 5 host(s) total</text>
+  <rect x="44" y="210" width="120" height="15" rx="5" fill="#1a1014" stroke="#3a2630"/>
+  <text x="51" y="221" fill="#ff5c7c" font-size="8" font-weight="700">NEW_HOST <tspan fill="#8b9bb0" font-weight="400">grafana.acme.com</tspan></text>
+  <rect x="170" y="210" width="84" height="15" rx="5" fill="#1a1014" stroke="#3a2630"/>
+  <text x="177" y="221" fill="#ff5c7c" font-size="8" font-weight="700">NEW_HOST <tspan fill="#8b9bb0" font-weight="400">vpn…</tspan></text>
+
+  <circle cx="28" cy="252" r="5" fill="#3ddc97" stroke="#0b0f14" stroke-width="3"/>
+  <text x="44" y="250" fill="#8b9bb0" font-size="8.5">run #2 · 2026-06-10 09:00 UTC</text>
+  <text x="44" y="263" fill="#e6edf3" font-size="9.5" font-weight="700" font-family="system-ui"><tspan font-family="ui-monospace">2</tspan> change(s) · 3 host(s) total</text>
+  <rect x="44" y="270" width="118" height="15" rx="5" fill="#1a1014" stroke="#3a2630"/>
+  <text x="51" y="281" fill="#ff5c7c" font-size="8" font-weight="700">NEW_HOST <tspan fill="#8b9bb0" font-weight="400">staging.acme.com</tspan></text>
+  <rect x="168" y="270" width="120" height="15" rx="5" fill="#1a1610" stroke="#3a3326"/>
+  <text x="175" y="281" fill="#ffb454" font-size="8" font-weight="700">STATUS_CHANGE <tspan fill="#8b9bb0" font-weight="400">api…</tspan></text>
+
+  <circle cx="28" cy="312" r="5" fill="#5b7089" stroke="#0b0f14" stroke-width="3"/>
+  <text x="44" y="310" fill="#8b9bb0" font-size="8.5">run #1 · 2026-06-08 09:00 UTC</text>
+  <text x="44" y="323" fill="#e6edf3" font-size="9.5" font-weight="700" font-family="system-ui">Baseline recorded — <tspan font-family="ui-monospace">2</tspan> host(s)</text>
+
+  <rect x="0.5" y="0.5" width="519" height="359" fill="none" stroke="#1e2935"/>
+</svg>

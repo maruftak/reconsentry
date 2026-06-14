@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Reusable GitHub Action (`uses: maruftak/reconsentry@v1`) plus a scheduled
+  example workflow, so a repo can monitor its surface in CI, persist the SQLite
+  history, and upload the HTML report as an artifact — no hosting required.
+- Project landing page and a published sample report under `docs/`, deployed to
+  GitHub Pages via a `pages` workflow.
 - `report` command: renders a scope's full snapshot history into a single
   self-contained HTML file (`reconsentry report --config scope.yaml -o
   surface.html`) — no server or external assets. It replays every run through

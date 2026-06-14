@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reconsentry — know the moment your attack surface changes</title>
+<meta name="description" content="Continuous attack-surface change monitoring for bug-bounty hunters. A single Go binary that diffs, prioritizes, and alerts the instant a new subdomain or live host appears — and renders a git-log-style HTML changelog of your surface.">
+<meta property="og:title" content="reconsentry — git log for your attack surface">
+<meta property="og:description" content="A single Go binary that watches your authorized targets and alerts the instant the attack surface changes. New subdomain, newly-live host, status/IP/tech change — you hear about it first.">
+<meta property="og:type" content="website">
+<style>
+:root{
+  --bg:#0a0e13; --panel:#121821; --panel2:#0e141c; --line:#1e2935;
+  --txt:#e6edf3; --dim:#8b9bb0; --accent:#3ddc97; --accent2:#4aa8ff;
+  --high:#ff5c7c; --medium:#ffb454;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:16px/1.65 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  background-image:radial-gradient(60rem 40rem at 75% -10%,rgba(61,220,151,.10),transparent),
+    radial-gradient(50rem 30rem at 0% 5%,rgba(74,168,255,.08),transparent);}
+a{color:var(--accent2);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1000px;margin:0 auto;padding:0 24px}
+/* nav */
+nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0;
+  border-bottom:1px solid var(--line)}
+.brand{font-weight:800;letter-spacing:.5px;font-size:18px}
+.brand .dot{color:var(--accent)}
+.nav-links a{color:var(--dim);margin-left:22px;font-size:14px;font-weight:500}
+.nav-links a:hover{color:var(--txt);text-decoration:none}
+/* hero */
+.hero{padding:88px 0 64px;text-align:center}
+.eyebrow{display:inline-block;font-family:var(--mono);font-size:12.5px;letter-spacing:.5px;
+  color:var(--accent);border:1px solid var(--line);background:var(--panel);
+  border-radius:999px;padding:6px 14px;margin-bottom:26px}
+h1{font-size:clamp(34px,6vw,62px);line-height:1.05;margin:0 0 18px;font-weight:800;
+  letter-spacing:-1px}
+h1 .grad{background:linear-gradient(100deg,var(--accent),var(--accent2));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:clamp(17px,2.4vw,21px);color:var(--dim);max-width:680px;margin:0 auto 16px}
+.tagline{font-family:var(--mono);color:var(--accent);font-size:15px;margin-bottom:34px}
+.cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:30px}
+.btn{display:inline-flex;align-items:center;gap:8px;font-weight:650;font-size:15px;
+  padding:12px 22px;border-radius:10px;border:1px solid var(--line)}
+.btn:hover{text-decoration:none}
+.btn.primary{background:var(--accent);color:#06231a;border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{background:var(--panel);color:var(--txt)}
+.btn.ghost:hover{border-color:var(--accent2)}
+.install{display:inline-flex;align-items:center;gap:12px;font-family:var(--mono);font-size:14px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:12px 16px;color:var(--txt)}
+.install .pfx{color:var(--accent)}
+.install button{background:transparent;border:1px solid var(--line);color:var(--dim);
+  border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer;font-family:inherit}
+.install button:hover{color:var(--txt);border-color:var(--accent)}
+/* pipeline */
+.pipe{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;
+  margin:54px 0 8px;font-family:var(--mono);font-size:13px}
+.pipe .node{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:8px 13px}
+.pipe .node.hot{border-color:var(--accent);color:var(--accent)}
+.pipe .arr{color:var(--dim)}
+.pipe-cap{text-align:center;color:var(--dim);font-size:13.5px;margin-bottom:10px}
+/* sections */
+section{padding:64px 0;border-top:1px solid var(--line)}
+.kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--accent);margin-bottom:10px}
+h2{font-size:clamp(26px,4vw,38px);margin:0 0 16px;font-weight:780;letter-spacing:-.5px}
+.lead{color:var(--dim);max-width:680px;font-size:17px}
+/* feature grid (bento) */
+.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-top:36px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;
+  grid-column:span 2}
+.card.wide{grid-column:span 3}
+.card.full{grid-column:span 6}
+.card h3{margin:0 0 8px;font-size:18px;font-weight:700}
+.card p{margin:0;color:var(--dim);font-size:14.5px}
+.card .ic{font-family:var(--mono);font-size:13px;color:var(--accent);margin-bottom:14px;
+  display:inline-block;border:1px solid var(--line);border-radius:7px;padding:4px 9px}
+.card.full{display:flex;gap:24px;align-items:center;flex-wrap:wrap}
+.card.full .txt{flex:1;min-width:240px}
+.shot{flex:1;min-width:260px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.shot img{display:block;width:100%}
+/* detect table */
+table{width:100%;border-collapse:collapse;margin-top:28px;font-size:14.5px}
+th{text-align:left;color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.5px;
+  padding:10px 12px;border-bottom:1px solid var(--line)}
+td{padding:11px 12px;border-bottom:1px solid var(--panel2)}
+td.k{font-family:var(--mono);color:var(--txt)}
+.pri{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--line)}
+.pri.high{color:var(--high);background:#1a1014;border-color:#3a2630}
+.pri.med{color:var(--medium);background:#1a1610;border-color:#3a3326}
+.pri.low{color:var(--dim)}
+/* code block */
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:20px;
+  overflow:auto;font-family:var(--mono);font-size:13.5px;line-height:1.6;color:var(--txt);margin-top:24px}
+pre .c{color:var(--dim)}
+pre .g{color:var(--accent)}
+footer{padding:48px 0 64px;border-top:1px solid var(--line);color:var(--dim);
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:14px}
+.warn{color:var(--medium)}
+@media(max-width:720px){.grid{grid-template-columns:1fr}.card,.card.wide,.card.full{grid-column:auto}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <span class="brand">recon<span class="dot">·</span>sentry</span>
+  <span class="nav-links">
+    <a href="#how">How</a>
+    <a href="#features">Features</a>
+    <a href="sample-report.html">Live report</a>
+    <a href="https://github.com/maruftak/reconsentry">GitHub</a>
+  </span>
+</nav>
+
+<header class="hero">
+  <span class="eyebrow">continuous attack-surface monitoring · single Go binary</span>
+  <h1>Know the moment your<br><span class="grad">attack surface changes.</span></h1>
+  <p class="sub">reconsentry watches the targets you're authorized to test and alerts you the
+  instant a new subdomain, a newly-live host, or a status/IP/tech change appears — so you
+  reach fresh assets before everyone else.</p>
+  <p class="tagline">— and renders a <strong>git&nbsp;log for your attack surface</strong>.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/maruftak/reconsentry">★ Star on GitHub</a>
+    <a class="btn ghost" href="sample-report.html">View a live report →</a>
+  </div>
+  <div class="install">
+    <span><span class="pfx">$</span> go install github.com/maruftak/reconsentry/cmd/reconsentry@latest</span>
+    <button onclick="navigator.clipboard&amp;&amp;navigator.clipboard.writeText('go install github.com/maruftak/reconsentry/cmd/reconsentry@latest');this.textContent='copied'">copy</button>
+  </div>
+</header>
+
+<section id="how" style="border-top:none;padding-top:8px">
+  <div class="pipe">
+    <span class="node">targets</span><span class="arr">→</span>
+    <span class="node">discover</span><span class="arr">→</span>
+    <span class="node">probe</span><span class="arr">→</span>
+    <span class="node">snapshot</span><span class="arr">→</span>
+    <span class="node hot">diff</span><span class="arr">→</span>
+    <span class="node hot">prioritize</span><span class="arr">→</span>
+    <span class="node hot">alert</span>
+  </div>
+  <p class="pipe-cap">Existing tools are great at <em>discovery</em> but leave you to diff the output by hand.
+  reconsentry closes that gap — the value is the <strong>diff + prioritization + alerting</strong> layer.</p>
+</section>
+
+<section id="features">
+  <div class="kicker">What makes it different</div>
+  <h2>Recon you don't have to babysit.</h2>
+  <p class="lead">It orchestrates battle-tested tools (subfinder, httpx) instead of reinventing
+  them, then does the part nobody else does well: tells you <em>what changed</em>, ranks it, and
+  pushes a clean alert.</p>
+
+  <div class="grid">
+    <div class="card wide">
+      <span class="ic">diff engine</span>
+      <h3>Snapshot &amp; diff, every run</h3>
+      <p>Surface is snapshotted to SQLite and compared to the last run. You see deltas, not a
+      wall of hosts you've already triaged.</p>
+    </div>
+    <div class="card wide">
+      <span class="ic">prioritized</span>
+      <h3>Signal, ranked</h3>
+      <p>A new live host is high priority; a CDN IP shuffle is low. Set <code>min_priority</code>
+      and only hear about what matters.</p>
+    </div>
+
+    <div class="card">
+      <span class="ic">6 channels</span>
+      <h3>Alert anywhere</h3>
+      <p>Slack, Discord, Telegram, email, and generic webhooks — per scope.</p>
+    </div>
+    <div class="card">
+      <span class="ic">passive</span>
+      <h3>Passive mode</h3>
+      <p>Scan-forbidding program? Monitor on discovery alone, no active probing.</p>
+    </div>
+    <div class="card">
+      <span class="ic">one binary</span>
+      <h3>No infra</h3>
+      <p>No Docker, no Postgres, no web server. One static Go binary and a SQLite file.</p>
+    </div>
+
+    <div class="card full">
+      <div class="txt">
+        <span class="ic">surface changelog</span>
+        <h3>git log for your attack surface</h3>
+        <p><code>reconsentry report</code> renders your whole snapshot history into a single
+        self-contained HTML file — a priority-coloured timeline of every change since the
+        baseline, a live/down surface table with <code>NEW</code> badges, and KPIs. Commit it,
+        or publish it on GitHub Pages as a living changelog your team can read.
+        <a href="sample-report.html">See a live sample →</a></p>
+      </div>
+      <a class="shot" href="sample-report.html">
+        <img alt="sample reconsentry surface report" src="report-preview.svg">
+      </a>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="kicker">What it detects</div>
+  <h2>Seven kinds of change.</h2>
+  <table>
+    <thead><tr><th>Change</th><th>Priority</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td class="k">NEW_HOST</td><td><span class="pri high">high</span></td><td>a subdomain that wasn't there before</td></tr>
+      <tr><td class="k">HOST_LIVE</td><td><span class="pri high">high</span></td><td>a known host that just started responding</td></tr>
+      <tr><td class="k">CERT_EXPIRING</td><td><span class="pri high">high</span></td><td>a host's TLS cert is near expiry</td></tr>
+      <tr><td class="k">STATUS_CHANGE</td><td><span class="pri med">medium</span></td><td>HTTP status code changed</td></tr>
+      <tr><td class="k">NEW_ENDPOINT</td><td><span class="pri med">medium</span></td><td>a URL/param seen for the first time</td></tr>
+      <tr><td class="k">NEW_TECH</td><td><span class="pri low">low</span></td><td>a new technology fingerprint</td></tr>
+      <tr><td class="k">HOST_GONE</td><td><span class="pri low">low</span></td><td>a host stopped resolving/responding</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <div class="kicker">60 seconds to your first baseline</div>
+  <h2>Quick start.</h2>
+<pre><span class="c"># install</span>
+<span class="g">$</span> go install github.com/maruftak/reconsentry/cmd/reconsentry@latest
+
+<span class="c"># scaffold a scope file, then edit your authorized targets</span>
+<span class="g">$</span> reconsentry init
+
+<span class="c"># record a baseline, then monitor every 6 hours</span>
+<span class="g">$</span> reconsentry run --config scope.yaml --interval 6h
+
+<span class="c"># turn your history into a shareable HTML changelog</span>
+<span class="g">$</span> reconsentry report --config scope.yaml -o surface.html</pre>
+  <p class="lead warn" style="margin-top:24px">⚠ Authorized use only. Point reconsentry at assets you own
+  or domains explicitly in scope for a bug-bounty / VDP program.</p>
+</section>
+
+<footer>
+  <span>reconsentry — MIT licensed. Built for hunters who want to get there first.</span>
+  <span><a href="https://github.com/maruftak/reconsentry">github.com/maruftak/reconsentry</a></span>
+</footer>
+
+</div>
+</body>
+</html>

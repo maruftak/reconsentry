@@ -1,0 +1,53 @@
+name: reconsentry
+description: Continuous attack-surface change monitoring in CI — diff, prioritize, alert, and render an HTML surface changelog.
+branding:
+  icon: radio
+  color: green
+
+inputs:
+  config:
+    description: Path to the scope file (see `reconsentry init`).
+    required: true
+  db:
+    description: SQLite snapshot database. Commit it back (or cache it) to persist history across runs.
+    required: false
+    default: reconsentry.db
+  args:
+    description: Extra flags passed to `reconsentry run` (e.g. "--max-hosts 500 --cert-check").
+    required: false
+    default: ""
+  report:
+    description: If set, also render an HTML surface report to this path after the run.
+    required: false
+    default: ""
+  version:
+    description: reconsentry version to install (a release tag, or "latest").
+    required: false
+    default: latest
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      with:
+        go-version: stable
+        cache: false
+
+    - name: Install reconsentry and recon tools
+      shell: bash
+      run: |
+        go install github.com/maruftak/reconsentry/cmd/reconsentry@${{ inputs.version }}
+        go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+        go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+    - name: Run reconsentry
+      shell: bash
+      run: |
+        reconsentry run --config "${{ inputs.config }}" --db "${{ inputs.db }}" ${{ inputs.args }}
+
+    - name: Render surface report
+      if: inputs.report != ''
+      shell: bash
+      run: |
+        reconsentry report --config "${{ inputs.config }}" --db "${{ inputs.db }}" -o "${{ inputs.report }}"

@@ -1,0 +1,44 @@
+# Example: run reconsentry on a schedule in GitHub Actions, persist the snapshot
+# history in the repo, and publish an HTML surface report as a build artifact.
+#
+# Drop this in .github/workflows/recon.yml of your own (private) repo. Keep your
+# scope file pointed only at targets you are authorized to test, and store
+# notifier secrets (Slack/Telegram/SMTP) as ${ENV_NAME} resolved from Actions
+# secrets — never commit them.
+
+name: recon
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write # to commit the updated snapshot db back
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: maruftak/reconsentry@v1
+        with:
+          config: scope.yaml
+          db: reconsentry.db
+          args: --max-hosts 1000
+          report: surface.html
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: surface-report
+          path: surface.html
+
+      - name: Persist snapshot history
+        run: |
+          git config user.name "reconsentry-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add reconsentry.db
+          git commit -m "chore: update surface snapshot" || echo "no changes"
+          git push
