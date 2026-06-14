@@ -8,6 +8,41 @@ import (
 	"github.com/maruftak/reconsentry/internal/model"
 )
 
+func TestAssetsForRun(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	id1, err := st.SaveRun("s", time.Now(), []model.Asset{
+		{Host: "a.example.com", Alive: true, Status: 200},
+		{Host: "b.example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := st.SaveRun("s", time.Now(), []model.Asset{{Host: "c.example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Each run returns exactly its own assets, not the latest.
+	r1, err := st.AssetsForRun(id1)
+	if err != nil || len(r1) != 2 {
+		t.Fatalf("run1: want 2 assets, got %v (%v)", r1, err)
+	}
+	r2, err := st.AssetsForRun(id2)
+	if err != nil || len(r2) != 1 || r2[0].Host != "c.example.com" {
+		t.Fatalf("run2: want [c.example.com], got %v (%v)", r2, err)
+	}
+
+	// An unknown run id yields no assets, no error.
+	if got, err := st.AssetsForRun(9999); err != nil || got != nil {
+		t.Fatalf("unknown run: want nil,nil; got %v, %v", got, err)
+	}
+}
+
 func TestOpenBadPath(t *testing.T) {
 	// A path under a nonexistent directory cannot be created, so schema init
 	// fails and Open must surface the error rather than return a broken handle.

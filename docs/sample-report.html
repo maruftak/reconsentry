@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>acme-public — attack surface · reconsentry</title>
+<style>
+:root{
+  --bg:#0b0f14; --panel:#121821; --panel2:#0e141c; --line:#1e2935;
+  --txt:#e6edf3; --dim:#8b9bb0; --accent:#3ddc97; --accent2:#4aa8ff;
+  --high:#ff5c7c; --medium:#ffb454; --low:#5b7089;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+a{color:var(--accent2);text-decoration:none}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 24px 80px}
+header{display:flex;align-items:baseline;justify-content:space-between;
+  flex-wrap:wrap;gap:12px;border-bottom:1px solid var(--line);padding-bottom:20px}
+.brand{font-weight:700;letter-spacing:.5px}
+.brand .dot{color:var(--accent)}
+h1{font-size:30px;margin:18px 0 4px;font-weight:680}
+.scope{font-family:var(--mono);color:var(--accent)}
+.meta{color:var(--dim);font-size:13px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:14px;margin:28px 0 36px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:16px 18px}
+.kpi .n{font-size:28px;font-weight:720;font-family:var(--mono)}
+.kpi .l{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+.kpi.live .n{color:var(--accent)}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim);
+  margin:40px 0 16px;font-weight:600}
+ 
+.tl{position:relative;margin-left:8px;padding-left:26px;border-left:2px solid var(--line)}
+.tl .ev{position:relative;margin-bottom:26px}
+.tl .ev::before{content:"";position:absolute;left:-34px;top:4px;width:11px;height:11px;
+  border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--bg)}
+.tl .ev.base::before{background:var(--low)}
+.ev .when{font-family:var(--mono);font-size:13px;color:var(--dim)}
+.ev .sum{margin:4px 0 8px;font-weight:600}
+.ev .sum b{font-family:var(--mono)}
+.tag{display:inline-block;font-family:var(--mono);font-size:12px;
+  padding:2px 8px;border-radius:6px;margin:3px 6px 3px 0;border:1px solid var(--line)}
+.tag .k{font-weight:700}
+.tag.high{color:var(--high);border-color:#3a2630;background:#1a1014}
+.tag.medium{color:var(--medium);border-color:#3a3326;background:#1a1610}
+.tag.low{color:var(--low);border-color:#26303a;background:#0e141c}
+.tag .hosts{color:var(--dim);font-weight:400}
+.quiet{color:var(--low);font-size:13px}
+ 
+.filter{width:100%;max-width:340px;background:var(--panel2);border:1px solid var(--line);
+  color:var(--txt);border-radius:8px;padding:9px 12px;font-size:14px;margin-bottom:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--dim);font-weight:600;font-size:12px;
+  text-transform:uppercase;letter-spacing:.5px;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--panel2)}
+tr:hover td{background:var(--panel)}
+.host{font-family:var(--mono)}
+.badge{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.5px;
+  background:var(--accent);color:#06231a;border-radius:5px;padding:1px 5px;margin-left:8px;vertical-align:middle}
+.state.live{color:var(--accent)}
+.state.down{color:var(--low)}
+.ip{font-family:var(--mono);color:var(--dim)}
+.tech{color:var(--dim);font-size:13px}
+.code{font-size:13px;color:var(--medium)}
+footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);
+  color:var(--dim);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <span class="brand">recon<span class="dot">·</span>sentry</span>
+  <span class="meta">generated 2026-06-14 23:47:06 UTC · reconsentry 0.5.0</span>
+</header>
+<h1>Attack surface — <span class="scope">acme-public</span></h1>
+<p class="meta">git log for your attack surface — every change, since the baseline.</p>
+
+
+
+<div class="kpis">
+  <div class="kpi"><div class="n">5</div><div class="l">Hosts</div></div>
+  <div class="kpi live"><div class="n">4</div><div class="l">Live</div></div>
+  <div class="kpi"><div class="n">7</div><div class="l">Technologies</div></div>
+  <div class="kpi"><div class="n">3</div><div class="l">Runs tracked</div></div>
+  <div class="kpi"><div class="n">5</div><div class="l">Changes seen</div></div>
+</div>
+
+<h2>Surface changelog</h2>
+<div class="tl">
+
+  <div class="ev">
+    <div class="when">run #3 · 2026-06-13 09:00 UTC</div>
+    
+      <div class="sum"><b>3</b> change(s) · 5 host(s) total</div>
+      
+        <span class="tag high"><span class="k">NEW_HOST</span>
+        <span class="hosts">grafana.acme.com vpn.acme.com </span></span>
+      
+        <span class="tag medium"><span class="k">STATUS_CHANGE</span>
+        <span class="hosts">api.acme.com </span></span>
+      
+    
+  </div>
+
+  <div class="ev">
+    <div class="when">run #2 · 2026-06-10 09:00 UTC</div>
+    
+      <div class="sum"><b>2</b> change(s) · 3 host(s) total</div>
+      
+        <span class="tag high"><span class="k">NEW_HOST</span>
+        <span class="hosts">staging.acme.com </span></span>
+      
+        <span class="tag medium"><span class="k">STATUS_CHANGE</span>
+        <span class="hosts">api.acme.com </span></span>
+      
+    
+  </div>
+
+  <div class="ev base">
+    <div class="when">run #1 · 2026-06-08 09:00 UTC</div>
+    
+      <div class="sum">Baseline recorded — <b>2</b> host(s)</div>
+    
+  </div>
+
+</div>
+
+<h2>Current surface</h2>
+<input class="filter" id="f" placeholder="filter hosts, tech, IP…" oninput="filterRows()">
+<table id="surface">
+<thead><tr><th>Host</th><th>State</th><th>Status</th><th>IP</th><th>Technology</th></tr></thead>
+<tbody>
+
+  <tr>
+    <td class="host">api.acme.com</td>
+    <td class="state live">live</td>
+    <td class="code">200</td>
+    <td class="ip">93.184.216.40</td>
+    <td class="tech">Kong, OpenAPI</td>
+  </tr>
+
+  <tr>
+    <td class="host">grafana.acme.com<span class="badge">NEW</span></td>
+    <td class="state live">live</td>
+    <td class="code">200</td>
+    <td class="ip">10.0.5.30</td>
+    <td class="tech">Grafana</td>
+  </tr>
+
+  <tr>
+    <td class="host">staging.acme.com</td>
+    <td class="state live">live</td>
+    <td class="code">200</td>
+    <td class="ip">10.0.5.12</td>
+    <td class="tech">Next.js, Vercel</td>
+  </tr>
+
+  <tr>
+    <td class="host">vpn.acme.com<span class="badge">NEW</span></td>
+    <td class="state down">down</td>
+    <td class="code">—</td>
+    <td class="ip">—</td>
+    <td class="tech">—</td>
+  </tr>
+
+  <tr>
+    <td class="host">www.acme.com</td>
+    <td class="state live">live</td>
+    <td class="code">200</td>
+    <td class="ip">93.184.216.34</td>
+    <td class="tech">HSTS, Nginx</td>
+  </tr>
+
+</tbody>
+</table>
+
+
+
+<footer>
+  <span>Generated by <a href="https://github.com/maruftak/reconsentry">reconsentry</a> — continuous attack-surface change monitoring.</span>
+  <span class="quiet">Authorized targets only.</span>
+</footer>
+</div>
+<script>
+function filterRows(){
+  var q=document.getElementById('f').value.toLowerCase();
+  var rows=document.querySelectorAll('#surface tbody tr');
+  for(var i=0;i<rows.length;i++){
+    rows[i].style.display=rows[i].textContent.toLowerCase().indexOf(q)>-1?'':'none';
+  }
+}
+</script>
+</body>
+</html>

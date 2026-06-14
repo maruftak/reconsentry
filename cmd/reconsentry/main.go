@@ -43,6 +43,8 @@ func main() {
 		os.Exit(cmdAssets(os.Args[2:]))
 	case "history":
 		os.Exit(cmdHistory(os.Args[2:]))
+	case "report":
+		os.Exit(cmdReport(os.Args[2:]))
 	case "version", "-v", "--version":
 		fmt.Printf("reconsentry %s\n", version)
 	case "help", "-h", "--help":
@@ -62,6 +64,7 @@ usage:
   reconsentry run --config scope.yaml [flags]
   reconsentry assets --config scope.yaml [--scope name] [--json]   show the latest snapshot
   reconsentry history --config scope.yaml [--scope name] [--json]  list past runs
+  reconsentry report --config scope.yaml [--scope name] [-o out.html]  self-contained HTML surface report
   reconsentry version
 
 A scope file holds one scope, or many under a top-level "scopes:" list.
@@ -401,6 +404,83 @@ func cmdHistory(args []string) int {
 		fmt.Printf("  #%-5d %s  %d asset(s)\n", r.ID, r.StartedAt.Format("2006-01-02 15:04:05"), r.Assets)
 	}
 	return 0
+}
+
+func cmdReport(args []string) int {
+	fs := flag.NewFlagSet("report", flag.ExitOnError)
+	cfgPath := fs.String("config", "", "path to scope config (required)")
+	dbPath := fs.String("db", "reconsentry.db", "path to sqlite database")
+	scopeName := fs.String("scope", "", "scope name (required if the config has multiple)")
+	out := fs.String("o", "", "output HTML file (default: stdout)")
+	_ = fs.Parse(args)
+
+	if *cfgPath == "" {
+		fmt.Fprintln(os.Stderr, "error: --config is required")
+		return 2
+	}
+	scopes, err := config.LoadAll(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	cfg, err := pickScope(scopes, *scopeName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	st, err := store.Open(*dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	defer st.Close()
+
+	runs, err := st.Runs(cfg.Name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	snaps := make([]report.RunSnapshot, 0, len(runs))
+	for _, r := range runs {
+		assets, err := st.AssetsForRun(r.ID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		snaps = append(snaps, report.RunSnapshot{ID: r.ID, At: r.StartedAt, Assets: assets})
+	}
+
+	html, err := report.HTML(report.SurfaceReport{
+		Scope:       cfg.Name,
+		GeneratedAt: time.Now(),
+		ToolVersion: "reconsentry " + version,
+		Snapshots:   snaps,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "render error: %v\n", err)
+		return 1
+	}
+
+	if *out == "" {
+		os.Stdout.Write(html)
+		return 0
+	}
+	if err := os.WriteFile(*out, html, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "write error: %v\n", err)
+		return 1
+	}
+	fmt.Printf("wrote %s (%d run(s), %d host(s))\n", *out, len(snaps), latestCount(snaps))
+	return 0
+}
+
+// latestCount returns the host count of the most recent snapshot, for the
+// report-written confirmation line.
+func latestCount(snaps []report.RunSnapshot) int {
+	if len(snaps) == 0 {
+		return 0
+	}
+	// Runs() is newest-first, so the most recent snapshot is the first element.
+	return len(snaps[0].Assets)
 }
 
 // writeSARIF renders the cycle's changes to a SARIF file, overwriting any

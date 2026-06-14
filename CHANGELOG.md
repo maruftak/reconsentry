@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `report` command: renders a scope's full snapshot history into a single
+  self-contained HTML file (`reconsentry report --config scope.yaml -o
+  surface.html`) — no server or external assets. It replays every run through
+  the diff engine to show a priority-coloured timeline of every change since the
+  baseline, a live/down surface table with `NEW` badges on freshly-seen hosts,
+  and KPIs. A portable artifact you can commit or publish on GitHub Pages as a
+  living "surface changelog". A rendered sample lives at `docs/sample-report.html`.
 - A fourth passive subdomain-discovery source: [jldc.me Anubis](https://jldc.me).
   It is a pure HTTP collector (no install, no API key), enforces target scope,
   de-duplicates hosts, and fails soft per target like the other sources — a dead

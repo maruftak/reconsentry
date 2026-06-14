@@ -79,6 +79,13 @@ func (s *Store) LatestAssets(scope string) ([]model.Asset, error) {
 	return s.assetsForRun(runID)
 }
 
+// AssetsForRun returns the assets recorded by a specific run, so historical
+// snapshots can be replayed (e.g. to reconstruct the surface changelog) rather
+// than only the latest one.
+func (s *Store) AssetsForRun(runID int64) ([]model.Asset, error) {
+	return s.assetsForRun(runID)
+}
+
 func (s *Store) assetsForRun(runID int64) ([]model.Asset, error) {
 	rows, err := s.db.Query(
 		`SELECT target, host, ip, alive, status, tech, title, server FROM assets WHERE run_id = ?`, runID)

@@ -139,6 +139,27 @@ to GitHub code scanning or any SARIF-aware dashboard:
 reconsentry run --config scope.yaml --sarif reconsentry.sarif
 ```
 
+### `git log` for your attack surface
+
+`reconsentry report` turns a scope's snapshot history into a **single,
+self-contained HTML file** — no server, no JS framework, no external assets.
+Open it locally, commit it next to your scope file, or publish it on GitHub
+Pages as a living *surface changelog* your whole team can read:
+
+```bash
+reconsentry report --config scope.yaml -o surface.html
+# wrote surface.html (3 run(s), 5 host(s))
+```
+
+It replays every recorded run through the same diff engine the alerts use, so
+the report shows a priority-coloured **timeline of every change since the
+baseline** (`NEW_HOST`, `STATUS_CHANGE`, …), a live/down surface table with a
+`NEW` badge on freshly-seen hosts, and at-a-glance KPIs. One portable file you
+can screenshot, share, or version-control.
+
+👉 **[See a rendered sample report](docs/sample-report.html)** (open the raw
+file — it's fully offline).
+
 ### Inspect the current surface
 
 `run` reports *changes*; `assets` shows the *latest snapshot* straight from the
@@ -253,7 +274,8 @@ The planned roadmap has shipped: multi-scope configs, `history` / `assets`,
 
 - [x] richer notifier formatting — Slack blocks / Discord embeds, grouped by
       priority with severity emoji and limit-safe chunking
-- [x] more passive discovery sources — crt.sh, Wayback, and OTX
+- [x] more passive discovery sources — crt.sh, Wayback, OTX, and Anubis
+- [x] `report` — a self-contained HTML surface changelog (no server, one file)
 
 Ideas for what's next are welcome — open an issue.
 
