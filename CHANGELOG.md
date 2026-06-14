@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- A fourth passive subdomain-discovery source: [jldc.me Anubis](https://jldc.me).
+  It is a pure HTTP collector (no install, no API key), enforces target scope,
+  de-duplicates hosts, and fails soft per target like the other sources — a dead
+  query degrades coverage instead of aborting the run. Closes #38.
+
 ## [0.5.0] - 2026-06-14
 
 ### Added
