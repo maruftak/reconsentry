@@ -8,6 +8,129 @@ import (
 	"github.com/maruftak/reconsentry/internal/model"
 )
 
+func TestOpenBadPath(t *testing.T) {
+	// A path under a nonexistent directory cannot be created, so schema init
+	// fails and Open must surface the error rather than return a broken handle.
+	_, err := Open(filepath.Join(t.TempDir(), "no-such-dir", "t.db"))
+	if err == nil {
+		t.Fatal("want error opening db under nonexistent dir, got nil")
+	}
+}
+
+func TestEndpointsRoundTrip(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "e.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// No crawl yet -> nil, nil.
+	if eps, err := st.LatestEndpoints("s"); err != nil || eps != nil {
+		t.Fatalf("empty scope: want nil,nil; got %v, %v", eps, err)
+	}
+
+	// Empty input is a no-op and must not create a run row.
+	if err := st.SaveEndpoints(1, "s", nil); err != nil {
+		t.Fatalf("SaveEndpoints(empty) should be a no-op, got %v", err)
+	}
+	if eps, _ := st.LatestEndpoints("s"); eps != nil {
+		t.Fatalf("no-op save should leave scope empty, got %v", eps)
+	}
+
+	run1, err := st.SaveRun("s", time.Now(), []model.Asset{{Host: "a.example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eps1 := []model.Endpoint{
+		{Target: "example.com", Host: "a.example.com", URL: "https://a.example.com/login"},
+		{Host: "a.example.com", URL: "https://a.example.com/health"}, // empty Target -> NullString
+	}
+	if err := st.SaveEndpoints(run1, "s", eps1); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.LatestEndpoints("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 endpoints, got %d", len(got))
+	}
+	byURL := map[string]model.Endpoint{}
+	for _, e := range got {
+		byURL[e.URL] = e
+	}
+	if e := byURL["https://a.example.com/login"]; e.Target != "example.com" || e.Host != "a.example.com" {
+		t.Errorf("round-trip mismatch: %+v", e)
+	}
+	if e := byURL["https://a.example.com/health"]; e.Target != "" {
+		t.Errorf("empty target should round-trip as empty string, got %q", e.Target)
+	}
+}
+
+// LatestEndpoints returns the most recent run that actually recorded endpoints,
+// so an intermittent crawl does not blank out the baseline.
+func TestLatestEndpointsSkipsRunsWithoutCrawl(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "e2.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	run1, _ := st.SaveRun("s", time.Now(), []model.Asset{{Host: "a.example.com"}})
+	if err := st.SaveEndpoints(run1, "s", []model.Endpoint{
+		{Host: "a.example.com", URL: "https://a.example.com/x"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A newer run with no crawl must not shadow run1's endpoints.
+	if _, err := st.SaveRun("s", time.Now().Add(time.Hour), []model.Asset{{Host: "a.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.LatestEndpoints("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].URL != "https://a.example.com/x" {
+		t.Fatalf("want run1's single endpoint, got %+v", got)
+	}
+}
+
+// Once the handle is closed, the query/exec methods must surface an error
+// instead of panicking or silently succeeding.
+func TestMethodsErrorAfterClose(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveRun("s", time.Now(), []model.Asset{{Host: "a.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if _, err := st.LatestAssets("s"); err == nil {
+		t.Error("LatestAssets after Close: want error, got nil")
+	}
+	if _, err := st.Runs("s"); err == nil {
+		t.Error("Runs after Close: want error, got nil")
+	}
+	if _, err := st.SaveRun("s", time.Now(), []model.Asset{{Host: "x"}}); err == nil {
+		t.Error("SaveRun after Close: want error, got nil")
+	}
+	if err := st.SaveEndpoints(1, "s", []model.Endpoint{{Host: "h", URL: "u"}}); err == nil {
+		t.Error("SaveEndpoints after Close: want error, got nil")
+	}
+	if _, err := st.LatestEndpoints("s"); err == nil {
+		t.Error("LatestEndpoints after Close: want error, got nil")
+	}
+	if err := st.Prune("s", 1); err == nil {
+		t.Error("Prune after Close: want error, got nil")
+	}
+}
+
 func TestSaveAndLatest(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
