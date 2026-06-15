@@ -45,6 +45,8 @@ func main() {
 		os.Exit(cmdHistory(os.Args[2:]))
 	case "report":
 		os.Exit(cmdReport(os.Args[2:]))
+	case "badge":
+		os.Exit(cmdBadge(os.Args[2:]))
 	case "version", "-v", "--version":
 		fmt.Printf("reconsentry %s\n", version)
 	case "help", "-h", "--help":
@@ -65,6 +67,7 @@ usage:
   reconsentry assets --config scope.yaml [--scope name] [--json]   show the latest snapshot
   reconsentry history --config scope.yaml [--scope name] [--json]  list past runs
   reconsentry report --config scope.yaml [--scope name] [-o out.html]  self-contained HTML surface report
+  reconsentry badge --config scope.yaml [--scope name] [-o badge.svg]   live attack-surface SVG badge
   reconsentry version
 
 A scope file holds one scope, or many under a top-level "scopes:" list.
@@ -481,6 +484,80 @@ func latestCount(snaps []report.RunSnapshot) int {
 	}
 	// Runs() is newest-first, so the most recent snapshot is the first element.
 	return len(snaps[0].Assets)
+}
+
+func cmdBadge(args []string) int {
+	fs := flag.NewFlagSet("badge", flag.ExitOnError)
+	cfgPath := fs.String("config", "", "path to scope config (required)")
+	dbPath := fs.String("db", "reconsentry.db", "path to sqlite database")
+	scopeName := fs.String("scope", "", "scope name (required if the config has multiple)")
+	label := fs.String("label", "attack surface", "left-hand badge label")
+	window := fs.Duration("window", 7*24*time.Hour, "change-velocity window (e.g. 7d as 168h)")
+	out := fs.String("o", "", "output SVG file (default: stdout)")
+	_ = fs.Parse(args)
+
+	if *cfgPath == "" {
+		fmt.Fprintln(os.Stderr, "error: --config is required")
+		return 2
+	}
+	scopes, err := config.LoadAll(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	cfg, err := pickScope(scopes, *scopeName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	st, err := store.Open(*dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	defer st.Close()
+
+	assets, err := st.LatestAssets(cfg.Name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	total := len(assets)
+	live := 0
+	for _, a := range assets {
+		if a.Alive {
+			live++
+		}
+	}
+
+	runs, err := st.Runs(cfg.Name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	// Runs() is newest-first. Walk to the first run at least `window` old and
+	// diff its host count against the current total for the change velocity.
+	delta, hasDelta := 0, false
+	for _, r := range runs {
+		if time.Since(r.StartedAt) >= *window {
+			delta = total - r.Assets
+			hasDelta = true
+			break
+		}
+	}
+
+	svg := report.Badge(*label, report.SurfaceStats{Total: total, Live: live, Delta: delta, HasDelta: hasDelta})
+
+	if *out == "" {
+		os.Stdout.Write(svg)
+		return 0
+	}
+	if err := os.WriteFile(*out, svg, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "write error: %v\n", err)
+		return 1
+	}
+	fmt.Printf("wrote %s (%d/%d live)\n", *out, live, total)
+	return 0
 }
 
 // writeSARIF renders the cycle's changes to a SARIF file, overwriting any

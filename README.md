@@ -183,6 +183,23 @@ A full scheduled example is in [`examples/github-action.yml`](examples/github-ac
 Use only on authorized targets, and keep notifier secrets in Actions secrets
 (referenced as `${ENV_NAME}` in the scope file).
 
+### Live surface badge
+
+`reconsentry badge` renders a self-contained, embeddable SVG of the scope's live
+surface plus its **change velocity** — host count, live count, and the net
+change over a window (default 7 days). It turns **amber** when the surface is
+growing (a hunter's cue that the target is shipping) and stays green otherwise:
+
+```bash
+reconsentry badge --config scope.yaml -o badge.svg
+# renders: attack surface | 38/42 live ▲3
+```
+
+![example surface badge](docs/surface-badge.svg)
+
+Drop it in a README or serve it from GitHub Pages so the surface state is always
+one glance away.
+
 ### Inspect the current surface
 
 `run` reports *changes*; `assets` shows the *latest snapshot* straight from the

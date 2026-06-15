@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `badge` command: renders a self-contained shields.io-style SVG of a scope's
+  live surface state with change velocity (e.g. `attack surface | 38/42 live
+  ▲3`) — amber when the surface is growing, green otherwise. Embeddable in a
+  README or servable from GitHub Pages.
 - Reusable GitHub Action (`uses: maruftak/reconsentry@v1`) plus a scheduled
   example workflow, so a repo can monitor its surface in CI, persist the SQLite
   history, and upload the HTML report as an artifact — no hosting required.
