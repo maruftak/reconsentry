@@ -67,6 +67,8 @@ type timelineEntry struct {
 	Baseline bool
 	Groups   []changeGroup // changes grouped by kind, priority-ordered
 	Total    int
+	Spike    bool // an abnormal burst of new hosts vs the scope's recent history
+	NewHosts int  // new hosts in this run (drives spike detection)
 }
 
 type changeGroup struct {
@@ -143,6 +145,7 @@ func buildTimeline(snaps []RunSnapshot) ([]timelineEntry, int) {
 	entries := make([]timelineEntry, 0, len(snaps))
 	var totalChanges int
 
+	var newHostHistory []int // new-host counts of preceding non-baseline runs
 	for i, s := range snaps {
 		e := timelineEntry{RunID: s.ID, When: s.At.UTC().Format("2006-01-02 15:04 UTC"), Assets: len(s.Assets)}
 		if i == 0 {
@@ -152,6 +155,14 @@ func buildTimeline(snaps []RunSnapshot) ([]timelineEntry, int) {
 			e.Groups = groupChanges(changes)
 			e.Total = len(changes)
 			totalChanges += len(changes)
+
+			for _, c := range changes {
+				if c.Kind == diff.NewHost {
+					e.NewHosts++
+				}
+			}
+			e.Spike = isSpike(e.NewHosts, newHostHistory)
+			newHostHistory = append(newHostHistory, e.NewHosts)
 		}
 		entries = append(entries, e)
 	}
@@ -251,6 +262,10 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim)
 .tl .ev::before{content:"";position:absolute;left:-34px;top:4px;width:11px;height:11px;
   border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--bg)}
 .tl .ev.base::before{background:var(--low)}
+.tl .ev.spike::before{background:var(--high);box-shadow:0 0 0 4px var(--bg),0 0 12px var(--high)}
+.spike{display:inline-block;font-family:var(--mono);font-size:12.5px;font-weight:700;
+  color:var(--high);background:#1a1014;border:1px solid #3a2630;border-radius:7px;
+  padding:4px 10px;margin:2px 0 8px}
 .ev .when{font-family:var(--mono);font-size:13px;color:var(--dim)}
 .ev .sum{margin:4px 0 8px;font-weight:600}
 .ev .sum b{font-family:var(--mono)}
@@ -307,11 +322,12 @@ footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);
 <h2>Surface changelog</h2>
 <div class="tl">
 {{range .Timeline}}
-  <div class="ev{{if .Baseline}} base{{end}}">
+  <div class="ev{{if .Baseline}} base{{end}}{{if .Spike}} spike{{end}}">
     <div class="when">run #{{.RunID}} · {{.When}}</div>
     {{if .Baseline}}
       <div class="sum">Baseline recorded — <b>{{.Assets}}</b> host(s)</div>
     {{else if .Total}}
+      {{if .Spike}}<div class="spike">🌊 SURFACE SPIKE — {{.NewHosts}} new host(s) in one run</div>{{end}}
       <div class="sum"><b>{{.Total}}</b> change(s) · {{.Assets}} host(s) total</div>
       {{range .Groups}}
         <span class="tag {{prio .Priority}}"><span class="k">{{.Kind}}</span>

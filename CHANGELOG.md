@@ -6,7 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-15
+
 ### Added
+- Surface-spike detection in the HTML report: a run that adds an abnormal burst
+  of new hosts (versus the scope's own recent history) is flagged with a
+  🌊 **SURFACE SPIKE** marker on the timeline — the moment a target is actively
+  shipping surface and worth looking at first.
 - `badge` command: renders a self-contained shields.io-style SVG of a scope's
   live surface state with change velocity (e.g. `attack surface | 38/42 live
   ▲3`) — amber when the surface is growing, green otherwise. Embeddable in a

@@ -159,6 +159,10 @@ baseline** (`NEW_HOST`, `STATUS_CHANGE`, …), a live/down surface table with a
 `NEW` badge on freshly-seen hosts, and at-a-glance KPIs. One portable file you
 can screenshot, share, or version-control.
 
+It also flags a **🌊 surface spike** — a run that added an abnormal burst of new
+hosts versus the scope's own recent history. A spike is the moment a target is
+actively shipping surface, which is exactly when you want to be looking.
+
 👉 **[See a rendered sample report](docs/sample-report.html)** (open the raw
 file — it's fully offline).
 

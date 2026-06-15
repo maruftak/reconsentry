@@ -38,6 +38,10 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim)
 .tl .ev::before{content:"";position:absolute;left:-34px;top:4px;width:11px;height:11px;
   border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--bg)}
 .tl .ev.base::before{background:var(--low)}
+.tl .ev.spike::before{background:var(--high);box-shadow:0 0 0 4px var(--bg),0 0 12px var(--high)}
+.spike{display:inline-block;font-family:var(--mono);font-size:12.5px;font-weight:700;
+  color:var(--high);background:#1a1014;border:1px solid #3a2630;border-radius:7px;
+  padding:4px 10px;margin:2px 0 8px}
 .ev .when{font-family:var(--mono);font-size:13px;color:var(--dim)}
 .ev .sum{margin:4px 0 8px;font-weight:600}
 .ev .sum b{font-family:var(--mono)}
@@ -73,7 +77,7 @@ footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);
 <div class="wrap">
 <header>
   <span class="brand">recon<span class="dot">·</span>sentry</span>
-  <span class="meta">generated 2026-06-14 23:47:06 UTC · reconsentry 0.5.0</span>
+  <span class="meta">generated 2026-06-15 00:09:16 UTC · reconsentry 0.5.0</span>
 </header>
 <h1>Attack surface — <span class="scope">acme-public</span></h1>
 <p class="meta">git log for your attack surface — every change, since the baseline.</p>
@@ -81,19 +85,32 @@ footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);
 
 
 <div class="kpis">
-  <div class="kpi"><div class="n">5</div><div class="l">Hosts</div></div>
-  <div class="kpi live"><div class="n">4</div><div class="l">Live</div></div>
-  <div class="kpi"><div class="n">7</div><div class="l">Technologies</div></div>
-  <div class="kpi"><div class="n">3</div><div class="l">Runs tracked</div></div>
-  <div class="kpi"><div class="n">5</div><div class="l">Changes seen</div></div>
+  <div class="kpi"><div class="n">10</div><div class="l">Hosts</div></div>
+  <div class="kpi live"><div class="n">9</div><div class="l">Live</div></div>
+  <div class="kpi"><div class="n">11</div><div class="l">Technologies</div></div>
+  <div class="kpi"><div class="n">4</div><div class="l">Runs tracked</div></div>
+  <div class="kpi"><div class="n">10</div><div class="l">Changes seen</div></div>
 </div>
 
 <h2>Surface changelog</h2>
 <div class="tl">
 
+  <div class="ev spike">
+    <div class="when">run #4 · 2026-06-14 09:00 UTC</div>
+    
+      <div class="spike">🌊 SURFACE SPIKE — 5 new host(s) in one run</div>
+      <div class="sum"><b>5</b> change(s) · 10 host(s) total</div>
+      
+        <span class="tag high"><span class="k">NEW_HOST</span>
+        <span class="hosts">admin-beta.acme.com ci.acme.com k8s-dash.acme.com metrics.acme.com payments-staging.acme.com </span></span>
+      
+    
+  </div>
+
   <div class="ev">
     <div class="when">run #3 · 2026-06-13 09:00 UTC</div>
     
+      
       <div class="sum"><b>3</b> change(s) · 5 host(s) total</div>
       
         <span class="tag high"><span class="k">NEW_HOST</span>
@@ -108,6 +125,7 @@ footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);
   <div class="ev">
     <div class="when">run #2 · 2026-06-10 09:00 UTC</div>
     
+      
       <div class="sum"><b>2</b> change(s) · 3 host(s) total</div>
       
         <span class="tag high"><span class="k">NEW_HOST</span>
@@ -135,6 +153,14 @@ footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);
 <tbody>
 
   <tr>
+    <td class="host">admin-beta.acme.com<span class="badge">NEW</span></td>
+    <td class="state live">live</td>
+    <td class="code">403</td>
+    <td class="ip">10.0.6.2</td>
+    <td class="tech">Django</td>
+  </tr>
+
+  <tr>
     <td class="host">api.acme.com</td>
     <td class="state live">live</td>
     <td class="code">200</td>
@@ -143,11 +169,43 @@ footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);
   </tr>
 
   <tr>
-    <td class="host">grafana.acme.com<span class="badge">NEW</span></td>
+    <td class="host">ci.acme.com<span class="badge">NEW</span></td>
+    <td class="state live">live</td>
+    <td class="code">200</td>
+    <td class="ip">10.0.6.5</td>
+    <td class="tech">Jenkins</td>
+  </tr>
+
+  <tr>
+    <td class="host">grafana.acme.com</td>
     <td class="state live">live</td>
     <td class="code">200</td>
     <td class="ip">10.0.5.30</td>
     <td class="tech">Grafana</td>
+  </tr>
+
+  <tr>
+    <td class="host">k8s-dash.acme.com<span class="badge">NEW</span></td>
+    <td class="state live">live</td>
+    <td class="code">200</td>
+    <td class="ip">10.0.6.3</td>
+    <td class="tech">Kubernetes</td>
+  </tr>
+
+  <tr>
+    <td class="host">metrics.acme.com<span class="badge">NEW</span></td>
+    <td class="state live">live</td>
+    <td class="code">200</td>
+    <td class="ip">10.0.6.4</td>
+    <td class="tech">Prometheus</td>
+  </tr>
+
+  <tr>
+    <td class="host">payments-staging.acme.com<span class="badge">NEW</span></td>
+    <td class="state live">live</td>
+    <td class="code">200</td>
+    <td class="ip">10.0.6.1</td>
+    <td class="tech">Next.js</td>
   </tr>
 
   <tr>
@@ -159,7 +217,7 @@ footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);
   </tr>
 
   <tr>
-    <td class="host">vpn.acme.com<span class="badge">NEW</span></td>
+    <td class="host">vpn.acme.com</td>
     <td class="state down">down</td>
     <td class="code">—</td>
     <td class="ip">—</td>
