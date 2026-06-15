@@ -291,6 +291,48 @@ targets: [example.com]
 passive: true
 ```
 
+### Subdomain takeover monitoring
+
+A subdomain takeover is one of the highest-payout, lowest-effort findings in
+bug bounty: a host whose DNS still points at a third-party service (S3, Azure,
+Ghost, GitHub Pages, …) that has been de-provisioned, so an attacker can
+re-register the resource and serve content from the victim's domain. Other
+tools scan for this once; `reconsentry` watches for the **moment a host slips
+into a takeover-able state** and alerts you — exactly when you want to be first.
+
+Enable it with `--takeover`. For every host it resolves the CNAME chain and
+matches the response against an embedded fingerprint table (a curated subset of
+[can-i-take-over-xyz][citox], cross-checked against subjack and nuclei):
+
+```bash
+reconsentry run --config scope.yaml --takeover
+```
+
+```
+🚨 TAKEOVER_RISK  blog.acme.com  potential Ghost takeover (high confidence):
+   unclaimed-resource fingerprint via CNAME → acme.ghost.io — manual confirmation required
+```
+
+Detection is deliberately conservative, to keep the signal high:
+
+- **High confidence (critical)** — the CNAME points at a known-claimable
+  service *and* the response carries that service's "unclaimed" fingerprint
+  (or, for NXDOMAIN-style services like Azure / Elastic Beanstalk, the CNAME
+  target no longer resolves).
+- **Lower confidence (high)** — only the body fingerprint matched; flagged for
+  manual confirmation.
+- **Informational (low)** — the host is parked on a service that *recognizes*
+  an unclaimed page but **blocks re-registration** (GitHub Pages, Heroku,
+  Shopify, Fastly, …). Reported so you know it's dangling, never as a takeover,
+  so you aren't sent chasing a dead end.
+
+> ⚠️ A `TAKEOVER_RISK` is a **risk indicator requiring manual confirmation**, never
+> proof of compromise. Confirm ownership and claimability yourself before
+> reporting, and never register a resource you are not authorized to claim.
+
+`--takeover` is active HTTP/DNS traffic, so it is skipped for `passive: true`
+scopes.
+
 ### Telegram and email notifications
 
 Telegram and email destinations live under the same `notify:` block as Slack,
@@ -341,6 +383,7 @@ notify:
 | `NEW_TECH`      | low      | a new technology fingerprint              |
 | `HOST_GONE`     | low      | a host stopped resolving/responding       |
 | `CERT_EXPIRING` | high     | a host's TLS cert is near expiry (opt-in via `--cert-check`) |
+| `TAKEOVER_RISK`  | critical | a host's dangling DNS record may be claimable — a subdomain takeover (opt-in via `--takeover`) |
 
 ## Roadmap
 
@@ -352,6 +395,16 @@ The planned roadmap has shipped: multi-scope configs, `history` / `assets`,
       priority with severity emoji and limit-safe chunking
 - [x] more passive discovery sources — crt.sh, Wayback, OTX, and Anubis
 - [x] `report` — a self-contained HTML surface changelog (no server, one file)
+- [x] **subdomain takeover monitoring** (`--takeover`) — alert the moment a
+      host's dangling DNS record becomes claimable
+
+Next on the "deep diff" track (each a new change kind on the same engine):
+
+- [ ] DNS-record change monitoring — CNAME / NS / MX / TXT flips (zone-hijack
+      and email-spoof signals)
+- [ ] favicon-hash change — a re-platformed host = fresh attack surface
+- [ ] response-body (simhash) content diff — a new login form / admin page
+      appearing on a known host
 
 Ideas for what's next are welcome — open an issue.
 
@@ -367,3 +420,4 @@ MIT — see [LICENSE](LICENSE).
 [crtsh]: https://crt.sh
 [wb]: https://web.archive.org
 [otx]: https://otx.alienvault.com
+[citox]: https://github.com/EdOverflow/can-i-take-over-xyz

@@ -7,6 +7,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Subdomain takeover monitoring** (`--takeover`): for every host, resolves the
+  CNAME chain and matches the response against an embedded fingerprint table (a
+  curated subset of can-i-take-over-xyz, cross-checked against subjack and
+  nuclei) to flag dangling DNS records that may be claimable. New `TAKEOVER_RISK`
+  change kind at a new **critical** priority. Detection is conservative —
+  CNAME + fingerprint (or a confirmed NXDOMAIN target) for high confidence,
+  body-only for low, and services that block re-registration (GitHub Pages,
+  Heroku, Shopify, …) are reported as informational rather than as takeovers.
+  Alerts are framed as risk indicators requiring manual confirmation. Active
+  traffic, so skipped for `passive:` scopes.
+- New `critical` priority tier above `high`, so claimable takeovers sort to the
+  top of alerts/reports and survive any `min_priority` filter.
 - `diff` command: compares any two stored runs without re-probing
   (`reconsentry diff --config scope.yaml [idA idB]`) — pass two run ids from
   `history`, or none to compare the two most recent. Supports `--json`.
