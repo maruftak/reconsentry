@@ -92,6 +92,7 @@ th{text-align:left;color:var(--dim);font-size:12px;text-transform:uppercase;lett
 td{padding:11px 12px;border-bottom:1px solid var(--panel2)}
 td.k{font-family:var(--mono);color:var(--txt)}
 .pri{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--line)}
+.pri.crit{color:#fff;background:#7a0b1e;border-color:#ff3860;font-weight:700}
 .pri.high{color:var(--high);background:#1a1014;border-color:#3a2630}
 .pri.med{color:var(--medium);background:#1a1610;border-color:#3a3326}
 .pri.low{color:var(--dim)}
@@ -206,10 +207,11 @@ footer{padding:48px 0 64px;border-top:1px solid var(--line);color:var(--dim);
 
 <section>
   <div class="kicker">What it detects</div>
-  <h2>Seven kinds of change.</h2>
+  <h2>Eight kinds of change.</h2>
   <table>
     <thead><tr><th>Change</th><th>Priority</th><th>Meaning</th></tr></thead>
     <tbody>
+      <tr><td class="k">TAKEOVER_RISK</td><td><span class="pri crit">critical</span></td><td>a dangling DNS record may be claimable — a subdomain takeover</td></tr>
       <tr><td class="k">NEW_HOST</td><td><span class="pri high">high</span></td><td>a subdomain that wasn't there before</td></tr>
       <tr><td class="k">HOST_LIVE</td><td><span class="pri high">high</span></td><td>a known host that just started responding</td></tr>
       <tr><td class="k">CERT_EXPIRING</td><td><span class="pri high">high</span></td><td>a host's TLS cert is near expiry</td></tr>

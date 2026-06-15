@@ -5,35 +5,33 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 
 	"github.com/maruftak/reconsentry/internal/model"
 )
 
-// takeoverBodyPreview is how many bytes of each response body httpx returns for
-// fingerprint matching. The "unclaimed resource" strings all appear early in
-// the body, so a few KB is plenty while keeping output bounded.
-const takeoverBodyPreview = 4096
-
 // takeoverLine models the subset of `httpx -json` output the takeover detector
-// consumes: the CNAME chain and the body/status used to match a service
-// fingerprint.
+// consumes. Field tags match ProjectDiscovery httpx's Result struct: the CNAME
+// chain is `cname` (an array despite the singular tag) and the response body is
+// `body` (emitted with -include-response). `response` is the full raw response
+// (headers + body) httpx emits under the same flag; it is read as a fallback so
+// a fingerprint still matches if the body lands there across httpx versions.
 type takeoverLine struct {
-	Input        string   `json:"input"`
-	URL          string   `json:"url"`
-	Host         string   `json:"host"`
-	StatusCode   int      `json:"status_code"`
-	CNAMEs       []string `json:"cnames"`
-	ResponseBody string   `json:"response_body"`
-	Failed       bool     `json:"failed"`
+	Input      string   `json:"input"`
+	URL        string   `json:"url"`
+	Host       string   `json:"host"`
+	StatusCode int      `json:"status_code"`
+	CNAMEs     []string `json:"cname"`
+	Body       string   `json:"body"`
+	Response   string   `json:"response"`
+	Failed     bool     `json:"failed"`
 }
 
-// Takeover probes hosts for the signals subdomain-takeover detection needs:
-// the CNAME chain (-cname) and a response-body preview (-body-preview). It runs
-// with -probe so every input yields a line (including hosts that fail to serve,
-// whose dangling CNAME may itself be the takeover signal). Active HTTP traffic,
-// so the runner only invokes it on non-passive scopes.
+// Takeover probes hosts for the signals subdomain-takeover detection needs: the
+// CNAME chain (-cname) and the response body (-include-response). It runs with
+// -probe so every input yields a line — including hosts that fail to serve,
+// whose dangling CNAME may itself be the takeover signal. Active HTTP/DNS
+// traffic, so the runner only invokes it on non-passive scopes.
 func Takeover(ctx context.Context, hosts []string) ([]model.HostProbe, error) {
 	if len(hosts) == 0 {
 		return nil, nil
@@ -42,8 +40,8 @@ func Takeover(ctx context.Context, hosts []string) ([]model.HostProbe, error) {
 		return nil, err
 	}
 	args := []string{
-		"-json", "-silent", "-no-color", "-probe", "-cname",
-		"-status-code", "-body-preview", strconv.Itoa(takeoverBodyPreview),
+		"-json", "-silent", "-no-color", "-probe",
+		"-cname", "-include-response", "-status-code",
 	}
 	out, err := runStdin(ctx, strings.Join(hosts, "\n"), "httpx", args...)
 	if err != nil {
@@ -78,10 +76,14 @@ func parseTakeover(b []byte) []model.HostProbe {
 		if name == "" {
 			continue
 		}
+		body := l.Body
+		if body == "" {
+			body = l.Response // fall back to the raw response when body isn't a separate field
+		}
 		probes = append(probes, model.HostProbe{
 			Host:   name,
 			CNAMEs: cleanCNAMEs(l.CNAMEs),
-			Body:   l.ResponseBody,
+			Body:   body,
 			Status: l.StatusCode,
 			Failed: l.Failed,
 		})
