@@ -69,7 +69,7 @@ func TestDetect(t *testing.T) {
 			name:           "nxdomain service with dangling cname target",
 			probe:          model.HostProbe{Host: "app.acme.com", CNAMEs: []string{"acme.azurewebsites.net"}, Failed: true},
 			wantFinding:    true,
-			wantService:    "Microsoft Azure (App Service)",
+			wantService:    "Microsoft Azure",
 			wantConfidence: "high",
 			wantVulnerable: true,
 		},
