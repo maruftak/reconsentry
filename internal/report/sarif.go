@@ -75,7 +75,7 @@ func buildRun(sc ScopeChanges) sarifRun {
 // levelFor maps a reconsentry priority to a SARIF result level.
 func levelFor(priority int) string {
 	switch priority {
-	case diff.High:
+	case diff.Critical, diff.High:
 		return "error"
 	case diff.Medium:
 		return "warning"

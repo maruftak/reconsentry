@@ -151,8 +151,8 @@ type priorityGroup struct {
 // within each bucket and omitting empty buckets. Any unexpected priority value
 // normalizes into the low bucket so no change is ever dropped.
 func groupByPriority(changes []diff.Change) []priorityGroup {
-	order := []int{diff.High, diff.Medium, diff.Low}
-	idx := map[int]int{diff.High: 0, diff.Medium: 1, diff.Low: 2}
+	order := []int{diff.Critical, diff.High, diff.Medium, diff.Low}
+	idx := map[int]int{diff.Critical: 0, diff.High: 1, diff.Medium: 2, diff.Low: 3}
 	buckets := make([][]diff.Change, len(order))
 	for _, c := range changes {
 		buckets[idx[normalizePriority(c.Priority)]] = append(buckets[idx[normalizePriority(c.Priority)]], c)
@@ -168,6 +168,8 @@ func groupByPriority(changes []diff.Change) []priorityGroup {
 
 func normalizePriority(p int) int {
 	switch p {
+	case diff.Critical:
+		return diff.Critical
 	case diff.High:
 		return diff.High
 	case diff.Medium:
@@ -179,6 +181,8 @@ func normalizePriority(p int) int {
 
 func priorityEmoji(p int) string {
 	switch normalizePriority(p) {
+	case diff.Critical:
+		return "🚨"
 	case diff.High:
 		return "🔴"
 	case diff.Medium:
@@ -364,6 +368,8 @@ func maxPriority(changes []diff.Change) int {
 
 func priorityName(p int) string {
 	switch p {
+	case diff.Critical:
+		return "critical"
 	case diff.High:
 		return "high"
 	case diff.Medium:
@@ -375,6 +381,8 @@ func priorityName(p int) string {
 
 func priorityColor(p int) string {
 	switch p {
+	case diff.Critical:
+		return "#b31d28"
 	case diff.High:
 		return "#d73a49"
 	case diff.Medium:
@@ -386,6 +394,8 @@ func priorityColor(p int) string {
 
 func priorityColorInt(p int) int {
 	switch p {
+	case diff.Critical:
+		return 0xb31d28
 	case diff.High:
 		return 0xd73a49
 	case diff.Medium:

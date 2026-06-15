@@ -23,13 +23,17 @@ const (
 	VulnFound    Kind = "VULN_FOUND"    // a finding from scanning a newly-discovered host
 	NewEndpoint  Kind = "NEW_ENDPOINT"  // a URL/param seen for the first time
 	CertExpiring Kind = "CERT_EXPIRING" // a host's TLS certificate is near expiry
+	TakeoverRisk Kind = "TAKEOVER_RISK" // a host's dangling DNS record may be claimable (subdomain takeover)
 )
 
-// Priority levels (higher = more interesting to a hunter).
+// Priority levels (higher = more interesting to a hunter). Critical is reserved
+// for findings that are exploitable right now — a claimable subdomain takeover —
+// so they sort above and survive any min_priority filter.
 const (
-	Low    = 1
-	Medium = 2
-	High   = 3
+	Low      = 1
+	Medium   = 2
+	High     = 3
+	Critical = 4
 )
 
 var defaultPriority = map[Kind]int{
@@ -42,6 +46,7 @@ var defaultPriority = map[Kind]int{
 	VulnFound:    High, // fallback; runner sets priority per finding severity
 	NewEndpoint:  Medium,
 	CertExpiring: High,
+	TakeoverRisk: Critical, // fallback; runner sets priority per finding confidence
 }
 
 // Change is a single classified difference between snapshots.

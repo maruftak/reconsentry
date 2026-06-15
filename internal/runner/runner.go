@@ -6,6 +6,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/maruftak/reconsentry/internal/notify"
 	"github.com/maruftak/reconsentry/internal/prioritize"
 	"github.com/maruftak/reconsentry/internal/store"
+	"github.com/maruftak/reconsentry/internal/takeover"
 )
 
 // DiscoverFunc finds hosts for the given root targets.
@@ -33,6 +35,9 @@ type CrawlFunc func(ctx context.Context, hosts []string) ([]model.Endpoint, erro
 // CertFunc fetches TLS certificate expiry for the given hosts.
 type CertFunc func(ctx context.Context, hosts []string) ([]model.CertInfo, error)
 
+// TakeoverFunc probes hosts for subdomain-takeover signals (CNAME chain + body).
+type TakeoverFunc func(ctx context.Context, hosts []string) ([]model.HostProbe, error)
+
 // defaultCertDays is the expiry window used when CertDays is unset.
 const defaultCertDays = 30
 
@@ -41,10 +46,12 @@ type Pipeline struct {
 	Store     *store.Store
 	Discover  DiscoverFunc
 	Probe     ProbeFunc
-	Scanner   ScanFunc  // optional; when set, newly-found hosts are scanned (run --scan-new)
-	Crawler   CrawlFunc // optional; when set, live hosts are crawled for endpoint changes (run --crawl)
-	CertCheck CertFunc  // optional; when set, live hosts' TLS certs are checked for near expiry (run --cert-check)
-	CertDays  int       // expiry window in days for CertCheck; <= 0 uses defaultCertDays
+	Scanner   ScanFunc          // optional; when set, newly-found hosts are scanned (run --scan-new)
+	Crawler   CrawlFunc         // optional; when set, live hosts are crawled for endpoint changes (run --crawl)
+	CertCheck CertFunc          // optional; when set, live hosts' TLS certs are checked for near expiry (run --cert-check)
+	CertDays  int               // expiry window in days for CertCheck; <= 0 uses defaultCertDays
+	Takeover  TakeoverFunc      // optional; when set, hosts are checked for subdomain-takeover risk (run --takeover)
+	Resolver  takeover.Resolver // optional DNS resolver for takeover NXDOMAIN checks; nil uses the system resolver
 	Notifiers []notify.Notifier
 	Keep      int              // if > 0, retain only the most recent Keep snapshots per scope
 	MaxHosts  int              // if > 0, probe at most this many hosts per run (safety bound for huge scopes)
@@ -53,17 +60,18 @@ type Pipeline struct {
 
 // Result summarizes one run.
 type Result struct {
-	RunID      int64
-	Assets     []model.Asset
-	Changes    []diff.Change
-	Findings   []model.Finding
-	Endpoints  []model.Endpoint
-	FirstRun   bool
-	Truncated  int // hosts dropped before probing by MaxHosts (0 = none)
-	NotifyErrs []error
-	ScanErr    error
-	CrawlErr   error
-	CertErr    error
+	RunID       int64
+	Assets      []model.Asset
+	Changes     []diff.Change
+	Findings    []model.Finding
+	Endpoints   []model.Endpoint
+	FirstRun    bool
+	Truncated   int // hosts dropped before probing by MaxHosts (0 = none)
+	NotifyErrs  []error
+	ScanErr     error
+	CrawlErr    error
+	CertErr     error
+	TakeoverErr error
 }
 
 // Run executes a single monitoring cycle for cfg.
@@ -147,6 +155,12 @@ func (p *Pipeline) Run(ctx context.Context, cfg *config.Config) (*Result, error)
 	// snapshot diff.
 	if p.CertCheck != nil && !cfg.Passive {
 		changes = append(changes, p.certCheck(ctx, cfg, assets, res, now())...)
+	}
+
+	// Takeover detection probes CNAME + body, so it is active traffic and
+	// skipped for passive scopes. Evaluated against the live response each run.
+	if p.Takeover != nil && !cfg.Passive {
+		changes = append(changes, p.takeoverCheck(ctx, cfg, assets, res)...)
 	}
 
 	// Promote bounty-likely new hosts (admin/staging/api/…) before filtering so
@@ -369,6 +383,62 @@ func (p *Pipeline) certCheck(ctx context.Context, cfg *config.Config, assets []m
 		changes[i].Target = matchTarget(changes[i].Host, cfg.Targets)
 	}
 	return changes
+}
+
+// takeoverCheck probes every host (alive or not — a dangling pointer is often
+// "dead") for subdomain-takeover signals and returns a TAKEOVER_RISK change per
+// finding. Errors are recorded on res rather than failing the whole run.
+func (p *Pipeline) takeoverCheck(ctx context.Context, cfg *config.Config, assets []model.Asset, res *Result) []diff.Change {
+	probes, err := p.Takeover(ctx, allHosts(assets))
+	if err != nil {
+		res.TakeoverErr = err
+		return nil
+	}
+	resolver := p.Resolver
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	findings := takeover.Detect(ctx, probes, resolver)
+	changes := make([]diff.Change, 0, len(findings))
+	for _, f := range findings {
+		changes = append(changes, diff.Change{
+			Kind:     diff.TakeoverRisk,
+			Target:   matchTarget(f.Host, cfg.Targets),
+			Host:     f.Host,
+			Detail:   f.Detail,
+			Priority: takeoverPriority(f),
+		})
+	}
+	return changes
+}
+
+// takeoverPriority maps a finding to a change priority: a claimable service at
+// high confidence is Critical; a claimable low-confidence (fingerprint-only)
+// match is High pending manual confirmation; a merely-parked pointer is Low
+// (informational).
+func takeoverPriority(f model.TakeoverFinding) int {
+	if !f.Vulnerable {
+		return diff.Low
+	}
+	if f.Confidence == "high" {
+		return diff.Critical
+	}
+	return diff.High
+}
+
+// allHosts returns every asset's host, deduplicated, so takeover detection can
+// inspect hosts that are not currently alive.
+func allHosts(assets []model.Asset) []string {
+	seen := make(map[string]bool, len(assets))
+	out := make([]string, 0, len(assets))
+	for _, a := range assets {
+		if a.Host == "" || seen[a.Host] {
+			continue
+		}
+		seen[a.Host] = true
+		out = append(out, a.Host)
+	}
+	return out
 }
 
 // certExpiringChanges returns a CERT_EXPIRING change for each cert that is

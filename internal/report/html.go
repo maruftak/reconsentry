@@ -209,6 +209,8 @@ func groupChanges(changes []diff.Change) []changeGroup {
 
 func priorityName(p int) string {
 	switch p {
+	case diff.Critical:
+		return "crit"
 	case diff.High:
 		return "high"
 	case diff.Medium:
@@ -232,7 +234,7 @@ const surfaceHTML = `<!DOCTYPE html>
 :root{
   --bg:#0b0f14; --panel:#121821; --panel2:#0e141c; --line:#1e2935;
   --txt:#e6edf3; --dim:#8b9bb0; --accent:#3ddc97; --accent2:#4aa8ff;
-  --high:#ff5c7c; --medium:#ffb454; --low:#5b7089;
+  --crit:#ff3860; --high:#ff5c7c; --medium:#ffb454; --low:#5b7089;
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}
@@ -272,6 +274,7 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim)
 .tag{display:inline-block;font-family:var(--mono);font-size:12px;
   padding:2px 8px;border-radius:6px;margin:3px 6px 3px 0;border:1px solid var(--line)}
 .tag .k{font-weight:700}
+.tag.crit{color:#fff;border-color:#ff3860;background:#7a0b1e;font-weight:700}
 .tag.high{color:var(--high);border-color:#3a2630;background:#1a1014}
 .tag.medium{color:var(--medium);border-color:#3a3326;background:#1a1610}
 .tag.low{color:var(--low);border-color:#26303a;background:#0e141c}
