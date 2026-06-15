@@ -669,6 +669,15 @@ track_ip: false
 # active scanning. Only NEW_HOST / HOST_GONE changes are reported.
 passive: false
 
+# Substrings that mark a newly-found host as high-value: any new host whose
+# name contains one is promoted to high priority and starred in the alert, so
+# it survives a high min_priority and stands out. Omit this list to use the
+# built-in defaults (admin, staging, api, vpn, jenkins, grafana, .git, ...).
+# interesting:
+#   - admin
+#   - staging
+#   - payments
+
 # Each list is a set of destination URLs rendered in that platform's format.
 # A scope can fan out to all destinations at once.
 #

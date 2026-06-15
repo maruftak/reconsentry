@@ -71,6 +71,7 @@ type Config struct {
 	MinPriority string   `yaml:"min_priority"` // low | medium | high
 	TrackIP     bool     `yaml:"track_ip"`     // alert on IP changes (noisy on CDNs); off by default
 	Passive     bool     `yaml:"passive"`      // discovery only: skip active probing/scanning/crawling
+	Interesting []string `yaml:"interesting"`  // substrings that mark a new host as high-value (empty = built-in defaults)
 	Notify      Notify   `yaml:"notify"`
 }
 
@@ -192,6 +193,9 @@ func (c *Config) normalize() {
 	}
 	for i, e := range c.Exclude {
 		c.Exclude[i] = strings.ToLower(model.TrimInvisible(e))
+	}
+	for i, k := range c.Interesting {
+		c.Interesting[i] = strings.ToLower(model.TrimInvisible(k))
 	}
 }
 

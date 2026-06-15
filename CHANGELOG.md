@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Interesting-host highlighting: a newly-discovered host whose name contains a
+  high-value substring (`admin`, `staging`, `api`, `vpn`, `jenkins`, `grafana`,
+  `.git`, …) is promoted to high priority and starred in the alert, so the
+  bounty-likely asset survives a high `min_priority` and stands out. A built-in
+  default keyword set applies; override per scope with an `interesting:` list.
+
 ## [0.6.0] - 2026-06-15
 
 ### Added

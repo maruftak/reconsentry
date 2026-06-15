@@ -246,6 +246,29 @@ scopes:
 `assets` and `history` then take `--scope <name>` to pick one. Single-scope
 files keep working with no changes.
 
+### Interesting-host highlighting
+
+Some new subdomains scream "look here": `admin`, `staging`, `dev`, `api`,
+`vpn`, `jenkins`, `grafana`, `gitlab`, … Any newly-discovered host whose name
+contains one of these is **promoted to high priority and starred** in the
+alert, so the bounty-likely asset survives a high `min_priority` and stands out
+from routine churn:
+
+```
+🔴 NEW_HOST  admin-beta.acme.com  [200, Django]  ⭐ interesting: admin
+```
+
+A built-in default keyword set applies out of the box. Override it per scope:
+
+```yaml
+name: acme-public
+targets: [acme.com]
+interesting:
+  - payments
+  - admin
+  - graphql
+```
+
 ### Passive mode
 
 Some programs forbid active scanning. Set `passive: true` on a scope to monitor

@@ -149,6 +149,9 @@ func (p *Pipeline) Run(ctx context.Context, cfg *config.Config) (*Result, error)
 		changes = append(changes, p.certCheck(ctx, cfg, assets, res, now())...)
 	}
 
+	// Promote bounty-likely new hosts (admin/staging/api/…) before filtering so
+	// they survive a high min_priority and stand out in the alert.
+	changes = prioritize.MarkInteresting(changes, cfg.Interesting)
 	res.Changes = prioritize.Filter(changes, prioritize.Level(cfg.MinPriority))
 
 	for _, n := range p.Notifiers {
