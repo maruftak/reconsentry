@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS endpoints (
 );
 CREATE INDEX IF NOT EXISTS idx_endpoints_run ON endpoints(run_id);
 CREATE INDEX IF NOT EXISTS idx_endpoints_scope ON endpoints(scope, run_id);
+CREATE TABLE IF NOT EXISTS dns_records (
+	run_id INTEGER NOT NULL,
+	scope  TEXT NOT NULL,
+	host   TEXT NOT NULL,
+	type   TEXT NOT NULL,
+	value  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dns_run ON dns_records(run_id);
+CREATE INDEX IF NOT EXISTS idx_dns_scope ON dns_records(scope, run_id);
 `
 
 // Open opens (creating if needed) the snapshot database at path.
@@ -246,6 +255,60 @@ func (s *Store) LatestEndpoints(scope string) ([]model.Endpoint, error) {
 	return out, rows.Err()
 }
 
+// SaveDNSRecords persists the DNS records collected for a run.
+func (s *Store) SaveDNSRecords(runID int64, scope string, recs []model.DNSRecord) error {
+	if len(recs) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin dns: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(`INSERT INTO dns_records(run_id, scope, host, type, value) VALUES(?,?,?,?,?)`)
+	if err != nil {
+		return fmt.Errorf("prepare dns: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, r := range recs {
+		if _, err := stmt.Exec(runID, scope, r.Host, r.Type, r.Value); err != nil {
+			return fmt.Errorf("insert dns %s/%s: %w", r.Host, r.Type, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// LatestDNSRecords returns the DNS records from the most recent run of scope
+// that recorded any (so an intermittent --dns run does not flag everything as
+// changed). It returns a nil slice when no DNS collection has happened yet.
+func (s *Store) LatestDNSRecords(scope string) ([]model.DNSRecord, error) {
+	var runID int64
+	err := s.db.QueryRow(`SELECT run_id FROM dns_records WHERE scope = ? ORDER BY run_id DESC LIMIT 1`, scope).Scan(&runID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("latest dns run: %w", err)
+	}
+	rows, err := s.db.Query(`SELECT host, type, value FROM dns_records WHERE run_id = ?`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("query dns: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.DNSRecord
+	for rows.Next() {
+		var r model.DNSRecord
+		if err := rows.Scan(&r.Host, &r.Type, &r.Value); err != nil {
+			return nil, fmt.Errorf("scan dns: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // Prune keeps only the most recent keep runs for scope (and their assets),
 // deleting older snapshots so the database stays bounded over long-running
 // monitoring. keep <= 0 is a no-op (retain everything).
@@ -270,6 +333,12 @@ func (s *Store) Prune(scope string, keep int) error {
 			SELECT id FROM runs WHERE scope = ? ORDER BY id DESC LIMIT ?)`,
 		scope, scope, keep); err != nil {
 		return fmt.Errorf("prune endpoints: %w", err)
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM dns_records WHERE scope = ? AND run_id NOT IN (
+			SELECT id FROM runs WHERE scope = ? ORDER BY id DESC LIMIT ?)`,
+		scope, scope, keep); err != nil {
+		return fmt.Errorf("prune dns: %w", err)
 	}
 	if _, err := tx.Exec(
 		`DELETE FROM runs WHERE scope = ? AND id NOT IN (

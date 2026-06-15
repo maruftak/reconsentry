@@ -87,6 +87,7 @@ run flags:
   --cert-check      check live hosts' TLS certs; near-expiry shows as CERT_EXPIRING
   --cert-days int   CERT_EXPIRING window in days (default 30; with --cert-check)
   --takeover        check hosts for dangling DNS records; risk shows as TAKEOVER_RISK
+  --dns             track CNAME/NS records; changes show as DNS_CHANGE (passive-safe)
   --dry-run         print changes; do not send notifications
   --json            emit results as JSON (one object per cycle) for piping
   --sarif string    write each cycle's changes to this SARIF file (CI upload)
@@ -108,6 +109,7 @@ func cmdRun(args []string) int {
 	certCheck := fs.Bool("cert-check", false, "check live hosts' TLS certs; near-expiry shows as CERT_EXPIRING")
 	certDays := fs.Int("cert-days", 30, "CERT_EXPIRING window in days (with --cert-check)")
 	takeover := fs.Bool("takeover", false, "check hosts for dangling DNS records; risk shows as TAKEOVER_RISK")
+	dns := fs.Bool("dns", false, "track CNAME/NS records; changes show as DNS_CHANGE")
 	dryRun := fs.Bool("dry-run", false, "print changes; do not notify")
 	jsonOut := fs.Bool("json", false, "emit run results as JSON (one object per cycle)")
 	sarifPath := fs.String("sarif", "", "write each cycle's changes to this SARIF file (for CI code-scanning upload)")
@@ -169,6 +171,10 @@ func cmdRun(args []string) int {
 		if *takeover {
 			takeoverChecker = collect.Takeover
 		}
+		var dnsChecker runner.DNSFunc
+		if *dns {
+			dnsChecker = collect.DNSRecords
+		}
 		jobs = append(jobs, job{
 			cfg: cfg,
 			pipe: &runner.Pipeline{
@@ -180,6 +186,7 @@ func cmdRun(args []string) int {
 				CertCheck: certChecker,
 				CertDays:  *certDays,
 				Takeover:  takeoverChecker,
+				DNS:       dnsChecker,
 				Notifiers: notifiers,
 				Keep:      *keep,
 				MaxHosts:  *maxHosts,

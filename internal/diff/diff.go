@@ -24,6 +24,7 @@ const (
 	NewEndpoint  Kind = "NEW_ENDPOINT"  // a URL/param seen for the first time
 	CertExpiring Kind = "CERT_EXPIRING" // a host's TLS certificate is near expiry
 	TakeoverRisk Kind = "TAKEOVER_RISK" // a host's dangling DNS record may be claimable (subdomain takeover)
+	DNSChange    Kind = "DNS_CHANGE"    // a host's CNAME or NS record set changed
 )
 
 // Priority levels (higher = more interesting to a hunter). Critical is reserved
@@ -47,6 +48,7 @@ var defaultPriority = map[Kind]int{
 	NewEndpoint:  Medium,
 	CertExpiring: High,
 	TakeoverRisk: Critical, // fallback; runner sets priority per finding confidence
+	DNSChange:    Medium,   // fallback; DiffDNS sets High for NS (delegation) changes
 }
 
 // Change is a single classified difference between snapshots.
@@ -151,6 +153,89 @@ func sortChanges(c []Change) {
 		}
 		return c[i].Kind < c[j].Kind
 	})
+}
+
+// DiffDNS compares previous and current DNS record sets (same scope) and returns
+// a DNS_CHANGE per host+type whose value set changed. Pure function. NS changes
+// (a zone-delegation change — a hijack/takeover signal) are High; CNAME changes
+// are Medium (an infra move that can precede a takeover).
+func DiffDNS(prev, curr []model.DNSRecord) []Change {
+	type key struct{ host, typ string }
+	index := func(recs []model.DNSRecord) map[key]map[string]bool {
+		m := map[key]map[string]bool{}
+		for _, r := range recs {
+			k := key{r.Host, r.Type}
+			if m[k] == nil {
+				m[k] = map[string]bool{}
+			}
+			m[k][r.Value] = true
+		}
+		return m
+	}
+	prevIdx, currIdx := index(prev), index(curr)
+
+	seen := map[key]bool{}
+	var keys []key
+	for k := range prevIdx {
+		seen[k] = true
+		keys = append(keys, k)
+	}
+	for k := range currIdx {
+		if !seen[k] {
+			keys = append(keys, k)
+		}
+	}
+
+	var changes []Change
+	for _, k := range keys {
+		added := setDiff(currIdx[k], prevIdx[k])
+		removed := setDiff(prevIdx[k], currIdx[k])
+		if len(added) == 0 && len(removed) == 0 {
+			continue
+		}
+		changes = append(changes, Change{
+			Kind:     DNSChange,
+			Host:     k.host,
+			Detail:   dnsDetail(k.typ, added, removed),
+			Priority: dnsPriority(k.typ),
+		})
+	}
+	sortChanges(changes)
+	return changes
+}
+
+// setDiff returns the sorted members of a that are absent from b.
+func setDiff(a, b map[string]bool) []string {
+	var out []string
+	for v := range a {
+		if !b[v] {
+			out = append(out, v)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func dnsDetail(typ string, added, removed []string) string {
+	// A clean one-for-one swap (typical for CNAME) reads as "old → new".
+	if len(added) == 1 && len(removed) == 1 {
+		return fmt.Sprintf("%s %s → %s", typ, removed[0], added[0])
+	}
+	parts := typ
+	for _, v := range added {
+		parts += " +" + v
+	}
+	for _, v := range removed {
+		parts += " -" + v
+	}
+	return parts
+}
+
+func dnsPriority(typ string) int {
+	if typ == "NS" {
+		return High
+	}
+	return Medium
 }
 
 // DiffEndpoints compares previous and current endpoint sets (same scope) and

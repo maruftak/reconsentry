@@ -38,6 +38,9 @@ type CertFunc func(ctx context.Context, hosts []string) ([]model.CertInfo, error
 // TakeoverFunc probes hosts for subdomain-takeover signals (CNAME chain + body).
 type TakeoverFunc func(ctx context.Context, hosts []string) ([]model.HostProbe, error)
 
+// DNSFunc resolves CNAME/NS records for the given hosts.
+type DNSFunc func(ctx context.Context, hosts []string) ([]model.DNSRecord, error)
+
 // defaultCertDays is the expiry window used when CertDays is unset.
 const defaultCertDays = 30
 
@@ -52,6 +55,7 @@ type Pipeline struct {
 	CertDays  int               // expiry window in days for CertCheck; <= 0 uses defaultCertDays
 	Takeover  TakeoverFunc      // optional; when set, hosts are checked for subdomain-takeover risk (run --takeover)
 	Resolver  takeover.Resolver // optional DNS resolver for takeover NXDOMAIN checks; nil uses the system resolver
+	DNS       DNSFunc           // optional; when set, CNAME/NS records are tracked and changes reported (run --dns)
 	Notifiers []notify.Notifier
 	Keep      int              // if > 0, retain only the most recent Keep snapshots per scope
 	MaxHosts  int              // if > 0, probe at most this many hosts per run (safety bound for huge scopes)
@@ -72,6 +76,8 @@ type Result struct {
 	CrawlErr    error
 	CertErr     error
 	TakeoverErr error
+	DNSErr      error
+	DNSRecords  []model.DNSRecord
 }
 
 // Run executes a single monitoring cycle for cfg.
@@ -161,6 +167,13 @@ func (p *Pipeline) Run(ctx context.Context, cfg *config.Config) (*Result, error)
 	// skipped for passive scopes. Evaluated against the live response each run.
 	if p.Takeover != nil && !cfg.Passive {
 		changes = append(changes, p.takeoverCheck(ctx, cfg, assets, res)...)
+	}
+
+	// DNS-record monitoring queries resolvers, not the target, so it is benign
+	// passive recon and runs even for passive scopes. The first collection is a
+	// baseline (no diff); later runs report DNS_CHANGE.
+	if p.DNS != nil {
+		changes = append(changes, p.dnsCheck(ctx, cfg, runID, assets, res)...)
 	}
 
 	// Promote bounty-likely new hosts (admin/staging/api/…) before filtering so
@@ -408,6 +421,35 @@ func (p *Pipeline) takeoverCheck(ctx context.Context, cfg *config.Config, assets
 			Detail:   f.Detail,
 			Priority: takeoverPriority(f),
 		})
+	}
+	return changes
+}
+
+// dnsCheck collects CNAME/NS records for every host, persists them, and returns
+// DNS_CHANGE changes against the previous DNS collection (none on the first).
+// Errors are recorded on res rather than failing the run.
+func (p *Pipeline) dnsCheck(ctx context.Context, cfg *config.Config, runID int64, assets []model.Asset, res *Result) []diff.Change {
+	prev, err := p.Store.LatestDNSRecords(cfg.Name)
+	if err != nil {
+		res.DNSErr = err
+		return nil
+	}
+	recs, err := p.DNS(ctx, allHosts(assets))
+	if err != nil {
+		res.DNSErr = err
+		return nil
+	}
+	res.DNSRecords = recs
+	if err := p.Store.SaveDNSRecords(runID, cfg.Name, recs); err != nil {
+		res.DNSErr = err
+		return nil
+	}
+	if len(prev) == 0 {
+		return nil // first collection is a baseline
+	}
+	changes := diff.DiffDNS(prev, recs)
+	for i := range changes {
+		changes[i].Target = matchTarget(changes[i].Host, cfg.Targets)
 	}
 	return changes
 }
