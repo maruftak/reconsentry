@@ -207,7 +207,7 @@ footer{padding:48px 0 64px;border-top:1px solid var(--line);color:var(--dim);
 
 <section>
   <div class="kicker">What it detects</div>
-  <h2>Eight kinds of change.</h2>
+  <h2>Nine kinds of change.</h2>
   <table>
     <thead><tr><th>Change</th><th>Priority</th><th>Meaning</th></tr></thead>
     <tbody>
@@ -215,6 +215,7 @@ footer{padding:48px 0 64px;border-top:1px solid var(--line);color:var(--dim);
       <tr><td class="k">NEW_HOST</td><td><span class="pri high">high</span></td><td>a subdomain that wasn't there before</td></tr>
       <tr><td class="k">HOST_LIVE</td><td><span class="pri high">high</span></td><td>a known host that just started responding</td></tr>
       <tr><td class="k">CERT_EXPIRING</td><td><span class="pri high">high</span></td><td>a host's TLS cert is near expiry</td></tr>
+      <tr><td class="k">DNS_CHANGE</td><td><span class="pri high">high/med</span></td><td>a host's NS (delegation) or CNAME record set changed</td></tr>
       <tr><td class="k">STATUS_CHANGE</td><td><span class="pri med">medium</span></td><td>HTTP status code changed</td></tr>
       <tr><td class="k">NEW_ENDPOINT</td><td><span class="pri med">medium</span></td><td>a URL/param seen for the first time</td></tr>
       <tr><td class="k">NEW_TECH</td><td><span class="pri low">low</span></td><td>a new technology fingerprint</td></tr>

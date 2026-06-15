@@ -13,7 +13,7 @@ inputs:
     required: false
     default: reconsentry.db
   args:
-    description: Extra flags passed to `reconsentry run` (e.g. "--max-hosts 500 --cert-check --takeover").
+    description: Extra flags passed to `reconsentry run` (e.g. "--max-hosts 500 --cert-check --takeover --dns").
     required: false
     default: ""
   report:

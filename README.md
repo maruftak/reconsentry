@@ -333,6 +333,38 @@ Detection is deliberately conservative, to keep the signal high:
 `--takeover` is active HTTP/DNS traffic, so it is skipped for `passive: true`
 scopes.
 
+### DNS-record monitoring
+
+`--dns` tracks each host's **`CNAME`** and **`NS`** records and reports a
+`DNS_CHANGE` when they move between runs:
+
+```bash
+reconsentry run --config scope.yaml --dns
+```
+
+```
+🔴 DNS_CHANGE  acme.com       NS +ns1.new-registrar.com -ns1.old-registrar.com
+🟠 DNS_CHANGE  blog.acme.com  CNAME old.hosting.net → new.hosting.net
+```
+
+Why these two record types:
+
+- **`NS` change (high)** — the zone's delegation moved. That can mean a domain
+  transfer, a misconfiguration, or a nameserver that's now unclaimed (an NS
+  takeover). Worth knowing immediately.
+- **`CNAME` change (medium)** — a host now points somewhere new. Often a benign
+  infra move, but it's also the first step toward a dangling-record takeover, so
+  it pairs naturally with `--takeover`.
+
+`NS` records only exist at zone cuts (the apex and delegated subdomains) and a
+`CNAME` only where one is configured, so plain A-record hosts produce nothing —
+the output stays high-signal. The first `--dns` run is a baseline; later runs
+report the diff.
+
+Unlike the active probes, DNS resolution only queries resolvers (not the
+target's own servers), so `--dns` is benign passive recon and runs even for
+`passive: true` scopes.
+
 ### Telegram and email notifications
 
 Telegram and email destinations live under the same `notify:` block as Slack,
@@ -384,6 +416,7 @@ notify:
 | `HOST_GONE`     | low      | a host stopped resolving/responding       |
 | `CERT_EXPIRING` | high     | a host's TLS cert is near expiry (opt-in via `--cert-check`) |
 | `TAKEOVER_RISK`  | critical | a host's dangling DNS record may be claimable — a subdomain takeover (opt-in via `--takeover`) |
+| `DNS_CHANGE`     | high/med | a host's `NS` (high — delegation change) or `CNAME` (medium) record set changed (opt-in via `--dns`) |
 
 ## Roadmap
 
@@ -397,11 +430,13 @@ The planned roadmap has shipped: multi-scope configs, `history` / `assets`,
 - [x] `report` — a self-contained HTML surface changelog (no server, one file)
 - [x] **subdomain takeover monitoring** (`--takeover`) — alert the moment a
       host's dangling DNS record becomes claimable
+- [x] **DNS-record change monitoring** (`--dns`) — `CNAME` / `NS` flips
+      (zone-hijack and takeover-precursor signals)
 
 Next on the "deep diff" track (each a new change kind on the same engine):
 
-- [ ] DNS-record change monitoring — CNAME / NS / MX / TXT flips (zone-hijack
-      and email-spoof signals)
+- [ ] `MX` / `TXT` record monitoring — email-spoof (SPF/DMARC) and new-SaaS
+      onboarding signals at the apex
 - [ ] favicon-hash change — a re-platformed host = fresh attack surface
 - [ ] response-body (simhash) content diff — a new login form / admin page
       appearing on a known host

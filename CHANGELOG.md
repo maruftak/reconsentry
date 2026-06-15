@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **DNS-record change monitoring** (`--dns`): tracks each host's `CNAME` and
+  `NS` records and reports a `DNS_CHANGE` when they move between runs. `NS`
+  changes (zone delegation) are high priority; `CNAME` changes (infra move /
+  takeover precursor) are medium. Records are resolved via the Go stdlib
+  resolver — no new external tool — and persisted per run in a new `dns_records`
+  table. Because DNS resolution only queries resolvers (not the target's
+  servers), it is benign passive recon and runs even for `passive:` scopes. The
+  first run is a baseline; later runs report the diff.
 - **Subdomain takeover monitoring** (`--takeover`): for every host, resolves the
   CNAME chain and matches the response against an embedded fingerprint table (a
   curated subset of can-i-take-over-xyz, cross-checked against subjack and
