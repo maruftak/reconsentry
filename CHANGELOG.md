@@ -7,6 +7,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `diff` command: compares any two stored runs without re-probing
+  (`reconsentry diff --config scope.yaml [idA idB]`) — pass two run ids from
+  `history`, or none to compare the two most recent. Supports `--json`.
 - Interesting-host highlighting: a newly-discovered host whose name contains a
   high-value substring (`admin`, `staging`, `api`, `vpn`, `jenkins`, `grafana`,
   `.git`, …) is promoted to high priority and starred in the alert, so the

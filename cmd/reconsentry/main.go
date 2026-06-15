@@ -47,6 +47,8 @@ func main() {
 		os.Exit(cmdReport(os.Args[2:]))
 	case "badge":
 		os.Exit(cmdBadge(os.Args[2:]))
+	case "diff":
+		os.Exit(cmdDiff(os.Args[2:]))
 	case "version", "-v", "--version":
 		fmt.Printf("reconsentry %s\n", version)
 	case "help", "-h", "--help":
@@ -68,6 +70,7 @@ usage:
   reconsentry history --config scope.yaml [--scope name] [--json]  list past runs
   reconsentry report --config scope.yaml [--scope name] [-o out.html]  self-contained HTML surface report
   reconsentry badge --config scope.yaml [--scope name] [-o badge.svg]   live attack-surface SVG badge
+  reconsentry diff --config scope.yaml [--scope name] [--json] [idA idB]  changes between two stored runs
   reconsentry version
 
 A scope file holds one scope, or many under a top-level "scopes:" list.
@@ -557,6 +560,108 @@ func cmdBadge(args []string) int {
 		return 1
 	}
 	fmt.Printf("wrote %s (%d/%d live)\n", *out, live, total)
+	return 0
+}
+
+func cmdDiff(args []string) int {
+	fs := flag.NewFlagSet("diff", flag.ExitOnError)
+	cfgPath := fs.String("config", "", "path to scope config (required)")
+	dbPath := fs.String("db", "reconsentry.db", "path to sqlite database")
+	scopeName := fs.String("scope", "", "scope name (required if the config has multiple)")
+	jsonOut := fs.Bool("json", false, "emit changes as JSON")
+	_ = fs.Parse(args)
+
+	if *cfgPath == "" {
+		fmt.Fprintln(os.Stderr, "error: --config is required")
+		return 2
+	}
+	scopes, err := config.LoadAll(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	cfg, err := pickScope(scopes, *scopeName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	st, err := store.Open(*dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	defer st.Close()
+
+	runs, err := st.Runs(cfg.Name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	if len(runs) < 2 {
+		fmt.Printf("need at least 2 runs to diff %q (have %d)\n", cfg.Name, len(runs))
+		return 0
+	}
+
+	// Resolve the run pair: explicit "idA idB", or the two most recent.
+	valid := make(map[int64]bool, len(runs))
+	for _, r := range runs {
+		valid[r.ID] = true
+	}
+	var fromID, toID int64
+	switch rest := fs.Args(); len(rest) {
+	case 0:
+		toID, fromID = runs[0].ID, runs[1].ID // newest vs previous
+	case 2:
+		a, errA := strconv.ParseInt(rest[0], 10, 64)
+		b, errB := strconv.ParseInt(rest[1], 10, 64)
+		if errA != nil || errB != nil {
+			fmt.Fprintln(os.Stderr, "error: run ids must be integers")
+			return 2
+		}
+		if !valid[a] || !valid[b] {
+			fmt.Fprintf(os.Stderr, "error: run id not found for scope %q\n", cfg.Name)
+			return 1
+		}
+		fromID, toID = a, b
+	default:
+		fmt.Fprintln(os.Stderr, "error: pass exactly two run ids, or none for the latest two")
+		return 2
+	}
+
+	from, err := st.AssetsForRun(fromID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	to, err := st.AssetsForRun(toID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	changes := diff.Diff(from, to)
+
+	if *jsonOut {
+		b, err := json.MarshalIndent(changes, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "json error: %v\n", err)
+			return 1
+		}
+		fmt.Println(string(b))
+		return 0
+	}
+
+	fmt.Printf("%d change(s) for %s — run #%d → run #%d:\n", len(changes), cfg.Name, fromID, toID)
+	if len(changes) == 0 {
+		fmt.Println("  (no changes)")
+		return 0
+	}
+	for _, c := range changes {
+		host := c.Host
+		if host == "" {
+			host = "-"
+		}
+		fmt.Printf("  [%-13s] %-40s %s\n", c.Kind, host, c.Detail)
+	}
 	return 0
 }
 

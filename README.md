@@ -217,6 +217,15 @@ reconsentry assets --config scope.yaml
 reconsentry assets --config scope.yaml --json | jq '.[] | select(.alive)'
 ```
 
+`diff` compares any two stored runs without re-probing — pass two run ids (from
+`history`), or none to compare the two most recent:
+
+```bash
+reconsentry diff --config scope.yaml          # latest run vs the previous one
+reconsentry diff --config scope.yaml 1 4      # what changed between run #1 and #4
+reconsentry diff --config scope.yaml --json 1 4 | jq '.[] | select(.priority >= 3)'
+```
+
 And `history` lists past runs, so you can see the monitoring cadence and how the
 surface size moved over time:
 
