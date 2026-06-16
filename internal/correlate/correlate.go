@@ -24,17 +24,18 @@ import (
 // the host is in motion. A claimable takeover dominates; routine churn (a new
 // tech fingerprint, a status flip) contributes little.
 const (
-	weightTakeoverRisk = 4
-	weightDNSChange    = 3
-	weightNewHost      = 2
-	weightHostLive     = 2
-	weightMXChange     = 2
-	weightTXTChange    = 2
-	weightNewTech      = 1
-	weightStatusChange = 1
-	weightCertExpiring = 1
-	weightIPChange     = 1
-	weightHostGone     = 1
+	weightTakeoverRisk  = 4
+	weightDNSChange     = 3
+	weightContentChange = 3
+	weightNewHost       = 2
+	weightHostLive      = 2
+	weightMXChange      = 2
+	weightTXTChange     = 2
+	weightNewTech       = 1
+	weightStatusChange  = 1
+	weightCertExpiring  = 1
+	weightIPChange      = 1
+	weightHostGone      = 1
 )
 
 // interestingBoost is added to a host's score when its name matches the
@@ -52,17 +53,18 @@ const (
 // the map (e.g. HOT_TARGET itself, VULN_FOUND, NEW_ENDPOINT) contributes 0 and
 // is ignored as a contributing signal.
 var weights = map[diff.Kind]int{
-	diff.TakeoverRisk: weightTakeoverRisk,
-	diff.DNSChange:    weightDNSChange,
-	diff.NewHost:      weightNewHost,
-	diff.HostLive:     weightHostLive,
-	diff.MXChange:     weightMXChange,
-	diff.TXTChange:    weightTXTChange,
-	diff.NewTech:      weightNewTech,
-	diff.StatusChange: weightStatusChange,
-	diff.CertExpiring: weightCertExpiring,
-	diff.IPChange:     weightIPChange,
-	diff.HostGone:     weightHostGone,
+	diff.TakeoverRisk:  weightTakeoverRisk,
+	diff.DNSChange:     weightDNSChange,
+	diff.ContentChange: weightContentChange,
+	diff.NewHost:       weightNewHost,
+	diff.HostLive:      weightHostLive,
+	diff.MXChange:      weightMXChange,
+	diff.TXTChange:     weightTXTChange,
+	diff.NewTech:       weightNewTech,
+	diff.StatusChange:  weightStatusChange,
+	diff.CertExpiring:  weightCertExpiring,
+	diff.IPChange:      weightIPChange,
+	diff.HostGone:      weightHostGone,
 }
 
 // Options tunes the correlation. The zero value uses the documented defaults.

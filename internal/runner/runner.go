@@ -42,6 +42,10 @@ type TakeoverFunc func(ctx context.Context, hosts []string) ([]model.HostProbe, 
 // DNSFunc resolves CNAME/NS records for the given hosts.
 type DNSFunc func(ctx context.Context, hosts []string) ([]model.DNSRecord, error)
 
+// ContentFunc fingerprints the page each given host serves (status + favicon
+// hash + body simhash + title hash).
+type ContentFunc func(ctx context.Context, hosts []string) ([]model.ContentFingerprint, error)
+
 // defaultCertDays is the expiry window used when CertDays is unset.
 const defaultCertDays = 30
 
@@ -57,6 +61,7 @@ type Pipeline struct {
 	Takeover  TakeoverFunc      // optional; when set, hosts are checked for subdomain-takeover risk (run --takeover)
 	Resolver  takeover.Resolver // optional DNS resolver for takeover NXDOMAIN checks; nil uses the system resolver
 	DNS       DNSFunc           // optional; when set, CNAME/NS records are tracked and changes reported (run --dns)
+	Content   ContentFunc       // optional; when set, live hosts' page content is fingerprinted and material changes reported (run --content)
 	Correlate bool              // optional; when true, co-occurring changes on a host are fused into a HOT_TARGET (run --correlate)
 	Notifiers []notify.Notifier
 	Keep      int              // if > 0, retain only the most recent Keep snapshots per scope
@@ -80,6 +85,8 @@ type Result struct {
 	TakeoverErr error
 	DNSErr      error
 	DNSRecords  []model.DNSRecord
+	ContentErr  error
+	Content     []model.ContentFingerprint
 }
 
 // Run executes a single monitoring cycle for cfg.
@@ -176,6 +183,14 @@ func (p *Pipeline) Run(ctx context.Context, cfg *config.Config) (*Result, error)
 	// baseline (no diff); later runs report DNS_CHANGE.
 	if p.DNS != nil {
 		changes = append(changes, p.dnsCheck(ctx, cfg, runID, assets, res)...)
+	}
+
+	// Content fingerprinting fetches page bodies, so it is active traffic and
+	// skipped for passive scopes. The first collection is a baseline (no diff);
+	// later runs report CONTENT_CHANGE when a known host's page materially moves.
+	// Runs before --correlate so a content change can feed correlation.
+	if p.Content != nil && !cfg.Passive {
+		changes = append(changes, p.contentCheck(ctx, cfg, runID, assets, res)...)
 	}
 
 	// Fuse co-occurring changes on a host into a single HOT_TARGET finding
@@ -458,6 +473,40 @@ func (p *Pipeline) dnsCheck(ctx context.Context, cfg *config.Config, runID int64
 		return nil // first collection is a baseline
 	}
 	changes := diff.DiffDNS(prev, recs)
+	for i := range changes {
+		changes[i].Target = matchTarget(changes[i].Host, cfg.Targets)
+	}
+	return changes
+}
+
+// contentCheck fingerprints the page each LIVE host serves, persists the
+// fingerprints, and returns CONTENT_CHANGE changes against the previous
+// collection (none on the first). Only live hosts are fetched — a host that
+// isn't responding has no page to fingerprint. Errors are recorded on res
+// rather than failing the run.
+func (p *Pipeline) contentCheck(ctx context.Context, cfg *config.Config, runID int64, assets []model.Asset, res *Result) []diff.Change {
+	prev, err := p.Store.LatestContentFingerprints(cfg.Name)
+	if err != nil {
+		res.ContentErr = err
+		return nil
+	}
+	fps, err := p.Content(ctx, liveHosts(assets))
+	if err != nil {
+		res.ContentErr = err
+		return nil
+	}
+	for i := range fps {
+		fps[i].Target = matchTarget(fps[i].Host, cfg.Targets)
+	}
+	res.Content = fps
+	if err := p.Store.SaveContentFingerprints(runID, cfg.Name, fps); err != nil {
+		res.ContentErr = err
+		return nil
+	}
+	if len(prev) == 0 {
+		return nil // first collection is a baseline
+	}
+	changes := diff.DiffContent(prev, fps)
 	for i := range changes {
 		changes[i].Target = matchTarget(changes[i].Host, cfg.Targets)
 	}

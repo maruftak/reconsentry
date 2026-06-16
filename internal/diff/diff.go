@@ -14,20 +14,21 @@ import (
 type Kind string
 
 const (
-	NewHost      Kind = "NEW_HOST"
-	HostLive     Kind = "HOST_LIVE"
-	StatusChange Kind = "STATUS_CHANGE"
-	IPChange     Kind = "IP_CHANGE"
-	NewTech      Kind = "NEW_TECH"
-	HostGone     Kind = "HOST_GONE"
-	VulnFound    Kind = "VULN_FOUND"    // a finding from scanning a newly-discovered host
-	NewEndpoint  Kind = "NEW_ENDPOINT"  // a URL/param seen for the first time
-	CertExpiring Kind = "CERT_EXPIRING" // a host's TLS certificate is near expiry
-	TakeoverRisk Kind = "TAKEOVER_RISK" // a host's dangling DNS record may be claimable (subdomain takeover)
-	DNSChange    Kind = "DNS_CHANGE"    // a host's CNAME or NS record set changed
-	MXChange     Kind = "MX_CHANGE"     // a host's MX (mail-flow) record set changed
-	TXTChange    Kind = "TXT_CHANGE"    // a host's TXT record set changed (SPF/DMARC/SaaS-verification)
-	HotTarget    Kind = "HOT_TARGET"    // multiple distinct change kinds co-occurred on one host (opt-in via --correlate)
+	NewHost       Kind = "NEW_HOST"
+	HostLive      Kind = "HOST_LIVE"
+	StatusChange  Kind = "STATUS_CHANGE"
+	IPChange      Kind = "IP_CHANGE"
+	NewTech       Kind = "NEW_TECH"
+	HostGone      Kind = "HOST_GONE"
+	VulnFound     Kind = "VULN_FOUND"     // a finding from scanning a newly-discovered host
+	NewEndpoint   Kind = "NEW_ENDPOINT"   // a URL/param seen for the first time
+	CertExpiring  Kind = "CERT_EXPIRING"  // a host's TLS certificate is near expiry
+	TakeoverRisk  Kind = "TAKEOVER_RISK"  // a host's dangling DNS record may be claimable (subdomain takeover)
+	DNSChange     Kind = "DNS_CHANGE"     // a host's CNAME or NS record set changed
+	MXChange      Kind = "MX_CHANGE"      // a host's MX (mail-flow) record set changed
+	TXTChange     Kind = "TXT_CHANGE"     // a host's TXT record set changed (SPF/DMARC/SaaS-verification)
+	ContentChange Kind = "CONTENT_CHANGE" // a known host's served page materially changed — re-platform, new login/admin, app appeared (opt-in via --content)
+	HotTarget     Kind = "HOT_TARGET"     // multiple distinct change kinds co-occurred on one host (opt-in via --correlate)
 )
 
 // Priority levels (higher = more interesting to a hunter). Critical is reserved
@@ -41,20 +42,21 @@ const (
 )
 
 var defaultPriority = map[Kind]int{
-	NewHost:      High,
-	HostLive:     High,
-	StatusChange: Medium,
-	IPChange:     Low,
-	NewTech:      Low,
-	HostGone:     Low,
-	VulnFound:    High, // fallback; runner sets priority per finding severity
-	NewEndpoint:  Medium,
-	CertExpiring: High,
-	TakeoverRisk: Critical, // fallback; runner sets priority per finding confidence
-	DNSChange:    Medium,   // fallback; DiffDNS sets High for NS (delegation) changes
-	MXChange:     Medium,   // a mail-flow change
-	TXTChange:    Low,      // fallback; DiffDNS sets High when SPF/DMARC posture weakens
-	HotTarget:    High,     // fallback; correlate sets Critical when a contributing signal is critical
+	NewHost:       High,
+	HostLive:      High,
+	StatusChange:  Medium,
+	IPChange:      Low,
+	NewTech:       Low,
+	HostGone:      Low,
+	VulnFound:     High, // fallback; runner sets priority per finding severity
+	NewEndpoint:   Medium,
+	CertExpiring:  High,
+	TakeoverRisk:  Critical, // fallback; runner sets priority per finding confidence
+	DNSChange:     Medium,   // fallback; DiffDNS sets High for NS (delegation) changes
+	MXChange:      Medium,   // a mail-flow change
+	TXTChange:     Low,      // fallback; DiffDNS sets High when SPF/DMARC posture weakens
+	ContentChange: Medium,   // fallback; DiffContent sets High when a page comes online (non-2xx -> 2xx)
+	HotTarget:     High,     // fallback; correlate sets Critical when a contributing signal is critical
 }
 
 // Change is a single classified difference between snapshots.
