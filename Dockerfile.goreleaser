@@ -1,0 +1,14 @@
+# Image build used by GoReleaser: the reconsentry binary is built by GoReleaser
+# and copied in; ProjectDiscovery's subfinder and httpx are installed here so the
+# published image is batteries-included (no extra tools to install at runtime).
+FROM golang:1.26-alpine AS pdtools
+ENV CGO_ENABLED=0
+RUN go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
+ && go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY reconsentry /usr/local/bin/reconsentry
+COPY --from=pdtools /go/bin/subfinder /usr/local/bin/subfinder
+COPY --from=pdtools /go/bin/httpx     /usr/local/bin/httpx
+ENTRYPOINT ["reconsentry"]

@@ -11,6 +11,7 @@ builds:
       - CGO_ENABLED=0
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w -X main.version={{.Version}}
 
@@ -21,6 +22,53 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+dockers_v2:
+  - images:
+      - "ghcr.io/maruftak/reconsentry"
+    tags:
+      - "{{ .Version }}"
+      - "latest"
+    dockerfile: Dockerfile.goreleaser
+    platforms:
+      - "linux/amd64"
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.source: "https://github.com/maruftak/reconsentry"
+      org.opencontainers.image.licenses: "MIT"
+
+# Homebrew tap (cask — goreleaser ships prebuilt binaries, so a cask, not a
+# formula). Publishing requires a HOMEBREW_TAP_GITHUB_TOKEN repo secret (a PAT
+# with write access to maruftak/homebrew-tap). When that secret is absent the
+# release workflow sets BREW_SKIP_UPLOAD=true, so the cask is built but not
+# pushed and a release never fails for lack of the tap.
+homebrew_casks:
+  - name: reconsentry
+    repository:
+      owner: maruftak
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/maruftak/reconsentry"
+    description: "Continuous attack-surface change monitor for bug-bounty hunters and security teams."
+    skip_upload: "{{ .Env.BREW_SKIP_UPLOAD }}"
+    binaries:
+      - reconsentry
+    # Strip the quarantine xattr so macOS Gatekeeper doesn't block the unsigned binary.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/reconsentry"]
+          end
+    caveats: |
+      reconsentry shells out to ProjectDiscovery's subfinder and httpx for active
+      discovery and probing. Install them with:
+        brew install subfinder
+        go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+      (Homebrew's "httpx" formula is the unrelated Python client — use the Go install.)
+      Or skip all setup with the batteries-included Docker image:
+        ghcr.io/maruftak/reconsentry:latest
 
 changelog:
   use: github

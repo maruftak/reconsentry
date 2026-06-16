@@ -1,0 +1,10 @@
+.git
+.github
+dist/
+*.db
+*.sarif
+*.html
+docs/*.gif
+docs/*.svg
+/reconsentry
+reconsentry.exe
