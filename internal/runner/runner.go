@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/maruftak/reconsentry/internal/config"
+	"github.com/maruftak/reconsentry/internal/correlate"
 	"github.com/maruftak/reconsentry/internal/diff"
 	"github.com/maruftak/reconsentry/internal/model"
 	"github.com/maruftak/reconsentry/internal/notify"
@@ -56,6 +57,7 @@ type Pipeline struct {
 	Takeover  TakeoverFunc      // optional; when set, hosts are checked for subdomain-takeover risk (run --takeover)
 	Resolver  takeover.Resolver // optional DNS resolver for takeover NXDOMAIN checks; nil uses the system resolver
 	DNS       DNSFunc           // optional; when set, CNAME/NS records are tracked and changes reported (run --dns)
+	Correlate bool              // optional; when true, co-occurring changes on a host are fused into a HOT_TARGET (run --correlate)
 	Notifiers []notify.Notifier
 	Keep      int              // if > 0, retain only the most recent Keep snapshots per scope
 	MaxHosts  int              // if > 0, probe at most this many hosts per run (safety bound for huge scopes)
@@ -174,6 +176,14 @@ func (p *Pipeline) Run(ctx context.Context, cfg *config.Config) (*Result, error)
 	// baseline (no diff); later runs report DNS_CHANGE.
 	if p.DNS != nil {
 		changes = append(changes, p.dnsCheck(ctx, cfg, runID, assets, res)...)
+	}
+
+	// Fuse co-occurring changes on a host into a single HOT_TARGET finding
+	// before highlighting/filtering, so the composite signal flows through the
+	// same priority and notification path as every other change. Uses the
+	// scope's interesting-keyword list as the correlation booster.
+	if p.Correlate {
+		changes = append(changes, correlate.Correlate(changes, correlate.Options{Interesting: cfg.Interesting})...)
 	}
 
 	// Promote bounty-likely new hosts (admin/staging/api/…) before filtering so

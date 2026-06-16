@@ -27,6 +27,7 @@ const (
 	DNSChange    Kind = "DNS_CHANGE"    // a host's CNAME or NS record set changed
 	MXChange     Kind = "MX_CHANGE"     // a host's MX (mail-flow) record set changed
 	TXTChange    Kind = "TXT_CHANGE"    // a host's TXT record set changed (SPF/DMARC/SaaS-verification)
+	HotTarget    Kind = "HOT_TARGET"    // multiple distinct change kinds co-occurred on one host (opt-in via --correlate)
 )
 
 // Priority levels (higher = more interesting to a hunter). Critical is reserved
@@ -53,6 +54,7 @@ var defaultPriority = map[Kind]int{
 	DNSChange:    Medium,   // fallback; DiffDNS sets High for NS (delegation) changes
 	MXChange:     Medium,   // a mail-flow change
 	TXTChange:    Low,      // fallback; DiffDNS sets High when SPF/DMARC posture weakens
+	HotTarget:    High,     // fallback; correlate sets Critical when a contributing signal is critical
 }
 
 // Change is a single classified difference between snapshots.
