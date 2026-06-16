@@ -52,34 +52,64 @@ Demo: https://maruftak.github.io/reconsentry/
 
 ## r/netsec
 
-**Title:** `ReconSentry: continuous attack-surface change monitoring as a single Go binary (diff → prioritize → alert + HTML changelog)`
+r/netsec is strict. Submit as a **link post to the repo** (not a text/self-promo
+post), keep the **title factual** (no marketing voice, no emoji), and put the
+substance in a **first comment as OP** with an author disclosure. The sub respects
+tools that (a) orchestrate existing tooling rather than reinvent it and (b) state
+their limits plainly — both are leaned into below. Expected flair: Tool. Reply to
+early technical questions fast; that drives ranking.
 
-Built an open-source attack-surface monitor aimed at the "tell me what *changed*"
-gap. Most recon tooling is discovery-first; ReconSentry sits on top and does
-snapshot → diff → priority → alert, on a schedule, with no infra (one Go binary +
-SQLite).
+**Title:** `ReconSentry – a single Go binary that monitors an attack surface for changes (new subdomains, subdomain-takeover risk, DNS record flips) and alerts you`
 
-Detects: `NEW_HOST`, `HOST_LIVE`, `STATUS_CHANGE`, `IP_CHANGE`, `NEW_TECH`,
-`HOST_GONE`, `CERT_EXPIRING`, `NEW_ENDPOINT`, `VULN_FOUND` (nuclei on new hosts).
-Notifiers: Slack/Discord/Telegram/email/generic webhook, per-scope.
+**Alt title:** `ReconSentry: continuous attack-surface change monitoring (snapshot → diff → prioritize → alert), open source, no infra`
 
-A few things worth feedback on:
-- **Surface-spike detection** — flags a run where new-host count is an abnormal
-  burst vs the scope's recent baseline. A "something's launching, look now"
-  signal rather than per-host noise.
-- **Self-contained HTML "surface changelog"** — replays snapshot history through
-  the diff engine into one portable file (no JS framework, works offline).
-- **Interesting-host highlighting** — new hosts matching admin/staging/api/vpn/…
-  are auto-promoted and starred.
+**First comment (post as OP):**
 
-Multi-scope, passive mode (discovery-only for scan-forbidding programs),
-`--max-hosts` bounding, SARIF output for code-scanning dashboards, a `diff`
-command to compare any two snapshots, and a reusable GitHub Action for CI
-monitoring.
+Author here. ReconSentry is an open-source (MIT) attack-surface *change* monitor.
+It targets the "tell me what changed" gap rather than discovery: subfinder/amass
+already enumerate well; the manual part is re-running them and diffing the output
+to catch the one *new* asset — which on a busy program is where everyone races.
 
-Designed for authorized engagements / VDP scope only — README leads with that.
+How it works: it orchestrates existing tools (subfinder + httpx, plus passive
+crt.sh / Wayback / OTX / Anubis) instead of reinventing them, snapshots the result
+to SQLite on a schedule, diffs against the previous run, assigns a priority, and
+pushes only what crosses a threshold to Slack/Discord/Telegram/email/webhook. One
+static binary — no Docker/Postgres/web UI — so it runs on a small VPS or entirely
+inside a GitHub Action (SQLite committed back for history).
 
-Repo + live sample report: https://github.com/maruftak/reconsentry
+Change kinds: NEW_HOST, HOST_LIVE, STATUS_CHANGE, IP_CHANGE, NEW_TECH, HOST_GONE,
+CERT_EXPIRING, TAKEOVER_RISK, DNS_CHANGE. Optional katana crawl and nuclei scan of
+*newly seen* hosts only.
+
+The two parts I'd most want feedback on:
+
+- **Subdomain-takeover monitoring (`--takeover`)** — resolves the CNAME chain and
+  matches a fingerprint table (curated subset of can-i-take-over-xyz, cross-checked
+  against subjack and nuclei). Deliberately conservative to keep signal high: "high
+  confidence" only when the CNAME points at a claimable service *and* the unclaimed
+  fingerprint matches (or the target stops resolving, for NXDOMAIN-style services);
+  services that show an unclaimed page but block re-registration (GitHub Pages,
+  Heroku, Shopify, Fastly…) are reported as informational, never as a takeover.
+  Every hit is flagged "requires manual confirmation," never proof.
+- **DNS-record monitoring (`--dns`)** — tracks NS (delegation change / possible
+  zone hijack) and CNAME (takeover precursor) per host and reports the diff.
+
+Other bits: surface-spike detection (a run that adds an abnormal burst of new hosts
+vs the scope's own baseline — a "something's launching" signal, not per-host
+noise), a self-contained offline HTML "surface changelog," multi-scope,
+passive-only mode for scan-forbidding programs, `--max-hosts` bounding, and SARIF
+output for code-scanning dashboards.
+
+Honest limitations: discovery is only as good as subfinder + the passive sources
+(no brute-force / permutation engine yet); tech fingerprinting is httpx's; the
+takeover fingerprint set is a curated subset, not exhaustive; and it's young, so
+the diff/priority heuristics need real-world tuning — false-positive/negative
+reports are exactly what I'm after.
+
+Authorized targets only (assets you own or explicitly in a bounty/VDP scope); the
+README leads with that.
+
+Repo (with a live sample report): https://github.com/maruftak/reconsentry
 
 ---
 
