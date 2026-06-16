@@ -19,6 +19,7 @@ import (
 	"github.com/maruftak/reconsentry/internal/collect"
 	"github.com/maruftak/reconsentry/internal/config"
 	"github.com/maruftak/reconsentry/internal/diff"
+	"github.com/maruftak/reconsentry/internal/mcpserver"
 	"github.com/maruftak/reconsentry/internal/model"
 	"github.com/maruftak/reconsentry/internal/notify"
 	"github.com/maruftak/reconsentry/internal/report"
@@ -49,6 +50,8 @@ func main() {
 		os.Exit(cmdBadge(os.Args[2:]))
 	case "diff":
 		os.Exit(cmdDiff(os.Args[2:]))
+	case "mcp":
+		os.Exit(cmdMCP(os.Args[2:]))
 	case "version", "-v", "--version":
 		fmt.Printf("reconsentry %s\n", version)
 	case "help", "-h", "--help":
@@ -71,6 +74,7 @@ usage:
   reconsentry report --config scope.yaml [--scope name] [-o out.html]  self-contained HTML surface report
   reconsentry badge --config scope.yaml [--scope name] [-o badge.svg]   live attack-surface SVG badge
   reconsentry diff --config scope.yaml [--scope name] [--json] [idA idB]  changes between two stored runs
+  reconsentry mcp --db reconsentry.db [--config scope.yaml]   read-only MCP server over stdio (for AI agents)
   reconsentry version
 
 A scope file holds one scope, or many under a top-level "scopes:" list.
@@ -675,6 +679,42 @@ func cmdDiff(args []string) int {
 			host = "-"
 		}
 		fmt.Printf("  [%-13s] %-40s %s\n", c.Kind, host, c.Detail)
+	}
+	return 0
+}
+
+// cmdMCP serves the snapshot database to an AI agent over a read-only MCP
+// server on stdio. It never scans, probes, or writes — it only reports data
+// already collected by `reconsentry run`. The database is opened read-only so a
+// bug cannot mutate it. --config is optional and, when given, is only validated
+// (the scope list comes from the database itself), so a stale config path fails
+// fast rather than silently.
+func cmdMCP(args []string) int {
+	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
+	dbPath := fs.String("db", "reconsentry.db", "path to sqlite database")
+	cfgPath := fs.String("config", "", "optional scope config to validate (scopes are read from the database)")
+	_ = fs.Parse(args)
+
+	if *cfgPath != "" {
+		if _, err := config.LoadAll(*cfgPath); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+	}
+
+	st, err := store.OpenReadOnly(*dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hint: run `reconsentry run --config scope.yaml --db %s` first to collect a snapshot\n", *dbPath)
+		return 1
+	}
+	defer st.Close()
+
+	// Everything human-facing must go to stderr; stdout is the MCP transport.
+	fmt.Fprintf(os.Stderr, "reconsentry mcp: serving %s read-only over stdio (ctrl-c to stop)\n", *dbPath)
+	if err := mcpserver.Serve(st, version); err != nil {
+		fmt.Fprintf(os.Stderr, "mcp error: %v\n", err)
+		return 1
 	}
 	return 0
 }
