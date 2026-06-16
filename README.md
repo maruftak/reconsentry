@@ -38,26 +38,51 @@ the **diff + prioritization + alerting** layer on top.
 
 ## Install
 
-`reconsentry` is a single Go binary. It shells out to [`subfinder`][sf] and [`httpx`][hx]
-(from ProjectDiscovery) for discovery and probing — install those too. Subdomain
-discovery is also augmented by [crt.sh][crtsh] certificate-transparency logs, the
-[Wayback Machine][wb] URL index, and [AlienVault OTX][otx] passive DNS over plain
-HTTP, so those sources need no extra install.
+Pick whichever fits — every path ships the same single, dependency-free binary.
+
+### Docker — zero setup (recommended)
+
+The image is **batteries-included**: `reconsentry`, [`subfinder`][sf], and
+[`httpx`][hx] are all baked in, so there's nothing else to install and no `PATH`
+collision to untangle.
 
 ```bash
-# reconsentry
-go install github.com/maruftak/reconsentry/cmd/reconsentry@latest
+docker run --rm -v "$PWD:/work" -w /work \
+  ghcr.io/maruftak/reconsentry:latest run --config scope.yaml
+```
 
-# required recon tools
+### Homebrew (macOS / Linux)
+
+```bash
+brew install maruftak/tap/reconsentry
+```
+
+### Prebuilt binary
+
+Download a build for your OS/arch from the [latest release][rel] — no toolchain
+required. Unpack it and put `reconsentry` on your `PATH`.
+
+### `go install`
+
+```bash
+go install github.com/maruftak/reconsentry/cmd/reconsentry@latest
+```
+
+For every non-Docker path, also install the two ProjectDiscovery tools
+`reconsentry` shells out to for active discovery and probing (passive sources —
+[crt.sh][crtsh], the [Wayback Machine][wb], [AlienVault OTX][otx] — need no
+install):
+
+```bash
 go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 go install github.com/projectdiscovery/httpx/cmd/httpx@latest
 ```
 
 > **Note:** ProjectDiscovery's `httpx` can collide on `PATH` with the unrelated Python
 > `httpx` CLI. If probing misbehaves, run `httpx -version` and ensure the ProjectDiscovery
-> binary resolves first on your `PATH`.
+> binary resolves first on your `PATH`. The Docker image sidesteps this entirely.
 
-Or build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/maruftak/reconsentry
@@ -628,6 +653,7 @@ labeled `good-first-issue`.
 
 MIT — see [LICENSE](LICENSE).
 
+[rel]: https://github.com/maruftak/reconsentry/releases
 [sf]: https://github.com/projectdiscovery/subfinder
 [hx]: https://github.com/projectdiscovery/httpx
 [crtsh]: https://crt.sh

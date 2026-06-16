@@ -6,15 +6,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-17
+
 ### Added
-- **DNS-record change monitoring** (`--dns`): tracks each host's `CNAME` and
-  `NS` records and reports a `DNS_CHANGE` when they move between runs. `NS`
-  changes (zone delegation) are high priority; `CNAME` changes (infra move /
-  takeover precursor) are medium. Records are resolved via the Go stdlib
-  resolver — no new external tool — and persisted per run in a new `dns_records`
-  table. Because DNS resolution only queries resolvers (not the target's
-  servers), it is benign passive recon and runs even for `passive:` scopes. The
-  first run is a baseline; later runs report the diff.
+- **DNS-record change monitoring** (`--dns`): tracks each host's `CNAME`, `NS`,
+  `MX`, and `TXT` records and reports `DNS_CHANGE` / `MX_CHANGE` / `TXT_CHANGE`
+  when they move between runs. `NS` changes (zone delegation) are high priority;
+  `CNAME` changes (infra move / takeover precursor) are medium. `MX`/`TXT`
+  diffing also derives email-security posture (SPF / DMARC) and flags a
+  regression — e.g. an SPF record loosening to `+all` or a DMARC policy dropping
+  to `p=none`. Records are resolved via the Go stdlib resolver — no new external
+  tool — and persisted per run in a new `dns_records` table. Because DNS
+  resolution only queries resolvers (not the target's servers), it is benign
+  passive recon and runs even for `passive:` scopes. The first run is a baseline;
+  later runs report the diff.
 - **Subdomain takeover monitoring** (`--takeover`): for every host, resolves the
   CNAME chain and matches the response against an embedded fingerprint table (a
   curated subset of can-i-take-over-xyz, cross-checked against subjack and
@@ -35,6 +40,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.git`, …) is promoted to high priority and starred in the alert, so the
   bounty-likely asset survives a high `min_priority` and stands out. A built-in
   default keyword set applies; override per scope with an `interesting:` list.
+- **Content-change monitoring** (`--content`): fingerprints each live host's page
+  content and reports a `CONTENT_CHANGE` when the body materially changes between
+  runs — a new login form, a swapped framework, a defacement — without alerting on
+  trivial churn. Active traffic, so skipped for `passive:` scopes.
+- **Signal correlation engine** (`--correlate`): fuses co-occurring changes on a
+  single host within a run into one `HOT_TARGET` finding, so a host that is
+  simultaneously new, serving fresh content, and showing a DNS move surfaces as a
+  single high-signal alert instead of three scattered low-priority lines.
+- **Read-only MCP server** (`reconsentry mcp`): exposes a scope's stored surface
+  history over the Model Context Protocol so an AI agent can query hosts, runs,
+  and changes. Read-only against the SQLite snapshot — it never probes or mutates
+  — and scopes come from the database itself.
+- **Zero-friction distribution**: prebuilt binaries for Linux/macOS/Windows
+  (amd64/arm64), a multi-arch Docker image (`Dockerfile` + `Dockerfile.goreleaser`),
+  and a Homebrew tap — all produced by a `goreleaser` release pipeline wired into
+  the `release` workflow so a tag push ships every artifact. Install no longer
+  requires a Go toolchain.
 
 ## [0.6.0] - 2026-06-15
 
