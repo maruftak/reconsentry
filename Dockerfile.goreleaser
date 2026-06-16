@@ -7,8 +7,11 @@ RUN go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
  && go install github.com/projectdiscovery/httpx/cmd/httpx@latest
 
 FROM alpine:3.20
+# dockers_v2 stages each platform's binary under $TARGETPLATFORM (e.g.
+# linux/amd64/reconsentry), so the COPY must reference that path, not the root.
+ARG TARGETPLATFORM
 RUN apk add --no-cache ca-certificates
-COPY reconsentry /usr/local/bin/reconsentry
+COPY ${TARGETPLATFORM}/reconsentry /usr/local/bin/reconsentry
 COPY --from=pdtools /go/bin/subfinder /usr/local/bin/subfinder
 COPY --from=pdtools /go/bin/httpx     /usr/local/bin/httpx
 ENTRYPOINT ["reconsentry"]
