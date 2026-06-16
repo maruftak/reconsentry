@@ -265,6 +265,34 @@ func TestCorrelateCustomThreshold(t *testing.T) {
 	}
 }
 
+func TestCorrelateContentChange(t *testing.T) {
+	// CONTENT_CHANGE(3) + NEW_TECH(1) = 4 == threshold, 2 distinct kinds -> fuse.
+	fused := []diff.Change{
+		{Kind: diff.ContentChange, Host: "app.example.com", Priority: diff.Medium, Detail: "body content changed"},
+		{Kind: diff.NewTech, Host: "app.example.com", Priority: diff.Low, Detail: "new tech: [Next.js]"},
+	}
+	ht := hotTargets(Correlate(fused, Options{}))
+	c, ok := ht["app.example.com"]
+	if !ok {
+		t.Fatalf("CONTENT_CHANGE + NEW_TECH should fuse into a HOT_TARGET, got none")
+	}
+	if c.Priority != diff.High {
+		t.Errorf("fused HOT_TARGET with no critical signal should be High, got %d", c.Priority)
+	}
+	if !strings.Contains(c.Detail, string(diff.ContentChange)) {
+		t.Errorf("detail should list CONTENT_CHANGE as a contributing signal: %q", c.Detail)
+	}
+
+	// CONTENT_CHANGE alone is one distinct kind: it already alerts on its own and
+	// must NOT fuse (the >= 2 distinct-kind rule).
+	alone := []diff.Change{
+		{Kind: diff.ContentChange, Host: "solo.example.com", Priority: diff.Medium, Detail: "favicon changed"},
+	}
+	if got := hotTargets(Correlate(alone, Options{})); len(got) != 0 {
+		t.Errorf("CONTENT_CHANGE alone must not fuse into a HOT_TARGET, got %+v", got)
+	}
+}
+
 func containsKind(ks []diff.Kind, want diff.Kind) bool {
 	for _, k := range ks {
 		if k == want {

@@ -92,6 +92,7 @@ run flags:
   --cert-days int   CERT_EXPIRING window in days (default 30; with --cert-check)
   --takeover        check hosts for dangling DNS records; risk shows as TAKEOVER_RISK
   --dns             track CNAME/NS/MX/TXT records; changes show as DNS_CHANGE/MX_CHANGE/TXT_CHANGE (passive-safe)
+  --content         fingerprint live hosts' page content; material changes show as CONTENT_CHANGE
   --correlate       fuse co-occurring changes on one host into a HOT_TARGET finding (a host in motion)
   --dry-run         print changes; do not send notifications
   --json            emit results as JSON (one object per cycle) for piping
@@ -115,6 +116,7 @@ func cmdRun(args []string) int {
 	certDays := fs.Int("cert-days", 30, "CERT_EXPIRING window in days (with --cert-check)")
 	takeover := fs.Bool("takeover", false, "check hosts for dangling DNS records; risk shows as TAKEOVER_RISK")
 	dns := fs.Bool("dns", false, "track CNAME/NS/MX/TXT records; changes show as DNS_CHANGE/MX_CHANGE/TXT_CHANGE")
+	content := fs.Bool("content", false, "fingerprint live hosts' page content; material changes show as CONTENT_CHANGE")
 	correlateChanges := fs.Bool("correlate", false, "fuse co-occurring changes on one host into a HOT_TARGET finding")
 	dryRun := fs.Bool("dry-run", false, "print changes; do not notify")
 	jsonOut := fs.Bool("json", false, "emit run results as JSON (one object per cycle)")
@@ -181,6 +183,10 @@ func cmdRun(args []string) int {
 		if *dns {
 			dnsChecker = collect.DNSRecords
 		}
+		var contentChecker runner.ContentFunc
+		if *content {
+			contentChecker = collect.ContentFingerprints
+		}
 		jobs = append(jobs, job{
 			cfg: cfg,
 			pipe: &runner.Pipeline{
@@ -193,6 +199,7 @@ func cmdRun(args []string) int {
 				CertDays:  *certDays,
 				Takeover:  takeoverChecker,
 				DNS:       dnsChecker,
+				Content:   contentChecker,
 				Correlate: *correlateChanges,
 				Notifiers: notifiers,
 				Keep:      *keep,
@@ -745,6 +752,9 @@ func printResult(res *runner.Result) {
 	if res.CertErr != nil {
 		fmt.Fprintf(os.Stderr, "cert-check error: %v\n", res.CertErr)
 	}
+	if res.ContentErr != nil {
+		fmt.Fprintf(os.Stderr, "content error: %v\n", res.ContentErr)
+	}
 	for _, e := range res.NotifyErrs {
 		fmt.Fprintf(os.Stderr, "notify error: %v\n", e)
 	}
@@ -781,6 +791,9 @@ func printJSON(scope string, res *runner.Result) {
 	}
 	if res.CertErr != nil {
 		fmt.Fprintf(os.Stderr, "cert-check error: %v\n", res.CertErr)
+	}
+	if res.ContentErr != nil {
+		fmt.Fprintf(os.Stderr, "content error: %v\n", res.ContentErr)
 	}
 	for _, e := range res.NotifyErrs {
 		fmt.Fprintf(os.Stderr, "notify error: %v\n", e)

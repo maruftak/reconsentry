@@ -377,6 +377,54 @@ Unlike the active probes, DNS resolution only queries resolvers (not the
 target's own servers), so `--dns` is benign passive recon and runs even for
 `passive: true` scopes.
 
+### Content-change monitoring (`--content`)
+
+A host you already know about is worth re-checking when the **page it serves**
+changes — a re-platform exposes a fresh attack surface, an error page replaced
+by a real app is a new target, and a login or admin panel appearing where there
+wasn't one is a lead. `--content` fingerprints each **live** host's page and
+reports a `CONTENT_CHANGE` when it *materially* moves between runs:
+
+```bash
+reconsentry run --config scope.yaml --content
+```
+
+```
+🔴 CONTENT_CHANGE  api.acme.com    page came online [403 → 200]
+🟠 CONTENT_CHANGE  shop.acme.com   favicon changed (re-platform), body content changed (simhash Δ27/64) + title changed
+```
+
+The fingerprint is three stable signals, none of which is the raw page:
+
+- **favicon hash** — httpx's mmh3 favicon hash (when available). A re-skin often
+  swaps the favicon first, so a flip is a strong re-platform tell.
+- **body simhash** — a 64-bit [simhash](https://en.wikipedia.org/wiki/SimHash)
+  of the page's *normalized* text. Near-identical pages share most bits, so a
+  change is measured as a Hamming distance; only a move past a conservative
+  threshold counts as material.
+- **title hash** — a cheap corroborator. It is mentioned in the alert alongside
+  a real trigger but **never fires a change on its own** (titles churn for
+  cosmetic reasons constantly).
+
+A change fires when the favicon flips, the body simhash moves past the
+threshold, or the page **comes online** (a non-`2xx` status crossing into
+`2xx`). Coming online is `high` priority — an app just appeared; everything else
+is `medium`.
+
+The reason it doesn't drown you in false positives is the **normalization**
+before the simhash: the body is lowercased, stripped of HTML tags to plain text,
+and scrubbed of high-entropy per-render noise — CSRF tokens, nonces, long
+hex/base64 runs, ISO timestamps, and epoch seconds — before being shingled into
+word 3-grams. So a page that only rotated its anti-CSRF token or its
+"generated at" timestamp hashes to (nearly) the same value and stays quiet,
+while a genuinely new page moves well past the threshold.
+
+Because it fetches page bodies, `--content` is **active traffic** and is skipped
+for `passive: true` scopes. The first `--content` run is a baseline; later runs
+report the diff. A host that fails to serve on a given run is ignored rather
+than alerted, and its failed fetch never overwrites the stored baseline — so a
+transient outage doesn't cost you the comparison point.
+
 ### Signal correlation (`--correlate`)
 
 Each change kind above already alerts on its own. But the signal a human can't
@@ -405,11 +453,11 @@ How a host qualifies. Each contributing change kind on the host carries a weight
 
 | Signal | Weight | | Signal | Weight |
 | --- | --- | --- | --- | --- |
-| `TAKEOVER_RISK` | 4 | | `TXT_CHANGE` | 2 |
-| `DNS_CHANGE` | 3 | | `NEW_TECH` | 1 |
+| `TAKEOVER_RISK` | 4 | | `MX_CHANGE` | 2 |
+| `DNS_CHANGE` | 3 | | `TXT_CHANGE` | 2 |
+| `CONTENT_CHANGE` | 3 | | `NEW_TECH` | 1 |
 | `NEW_HOST` | 2 | | `STATUS_CHANGE` | 1 |
-| `HOST_LIVE` | 2 | | `CERT_EXPIRING` | 1 |
-| `MX_CHANGE` | 2 | | `IP_CHANGE` / `HOST_GONE` | 1 |
+| `HOST_LIVE` | 2 | | `CERT_EXPIRING` / `IP_CHANGE` / `HOST_GONE` | 1 |
 
 A host is fused into a `HOT_TARGET` when **both**:
 
@@ -541,6 +589,7 @@ notify:
 | `DNS_CHANGE`     | high/med | a host's `NS` (high — delegation change) or `CNAME` (medium) record set changed (opt-in via `--dns`) |
 | `MX_CHANGE`      | medium   | a host's `MX` (mail-flow) record set changed (opt-in via `--dns`) |
 | `TXT_CHANGE`     | low/high | a host's `TXT` record set changed — high when it weakens email auth (SPF `all` softened/removed or DMARC `p=` softened/removed) (opt-in via `--dns`) |
+| `CONTENT_CHANGE` | high/med | a known host's served page materially changed — a re-platform, a newly-exposed login/admin page, an app where an error page used to be, or a host coming online; high when the page comes online (non-2xx → 2xx), else medium (opt-in via `--content`) |
 | `HOT_TARGET`     | critical/high | several distinct change kinds co-occurred on one host in a single run — a target in motion (opt-in via `--correlate`; critical when a contributing signal is critical, else high) |
 
 ## Roadmap
@@ -563,11 +612,12 @@ The planned roadmap has shipped: multi-scope configs, `history` / `assets`,
       attack surface conversationally from an AI agent (no scanning, no writes)
 - [x] **signal correlation** (`--correlate`) — fuse co-occurring change kinds on
       one host into a single `HOT_TARGET` finding (a target in motion)
-
-Next on the "deep diff" track (each a new change kind on the same engine):
-- [ ] favicon-hash change — a re-platformed host = fresh attack surface
-- [ ] response-body (simhash) content diff — a new login form / admin page
-      appearing on a known host
+- [x] **content-change monitoring** (`--content`) — fingerprint each live host's
+      page (favicon hash + body simhash + title) and alert when it *materially*
+      changes: a re-platform, a newly-exposed login/admin page, an app where an
+      error page used to be, or a host coming online. Stable across cosmetic
+      noise (CSRF tokens, timestamps, nonces). Unifies the favicon-hash and
+      response-body (simhash) diff items.
 
 Ideas for what's next are welcome — open an issue.
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +59,18 @@ CREATE TABLE IF NOT EXISTS dns_records (
 );
 CREATE INDEX IF NOT EXISTS idx_dns_run ON dns_records(run_id);
 CREATE INDEX IF NOT EXISTS idx_dns_scope ON dns_records(scope, run_id);
+CREATE TABLE IF NOT EXISTS content_fingerprints (
+	run_id  INTEGER NOT NULL,
+	scope   TEXT NOT NULL,
+	target  TEXT,
+	host    TEXT NOT NULL,
+	status  INTEGER NOT NULL DEFAULT 0,
+	favicon TEXT,
+	simhash TEXT NOT NULL DEFAULT '0',
+	title   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_content_run ON content_fingerprints(run_id);
+CREATE INDEX IF NOT EXISTS idx_content_scope ON content_fingerprints(scope, run_id);
 `
 
 // Open opens (creating if needed) the snapshot database at path.
@@ -356,6 +369,89 @@ func (s *Store) LatestDNSRecords(scope string) ([]model.DNSRecord, error) {
 	return out, rows.Err()
 }
 
+// SaveContentFingerprints persists the content fingerprints collected for a run.
+// Only NON-FAILED fingerprints are stored — one with a status, a favicon hash,
+// or a nonzero simhash. A failed/empty fetch (host only) is dropped so a
+// transient outage never overwrites the baseline a later run diffs against. The
+// 64-bit simhash is stored as TEXT (base-10) so the high bit round-trips without
+// SQLite's signed-integer coercion.
+func (s *Store) SaveContentFingerprints(runID int64, scope string, fps []model.ContentFingerprint) error {
+	if len(fps) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin content: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(
+		`INSERT INTO content_fingerprints(run_id, scope, target, host, status, favicon, simhash, title)
+		 VALUES(?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		return fmt.Errorf("prepare content: %w", err)
+	}
+	defer stmt.Close()
+
+	saved := 0
+	for _, f := range fps {
+		if f.Status == 0 && f.SimHash == 0 && f.FaviconHash == "" {
+			continue // failed/empty fetch: do not clobber the baseline
+		}
+		if _, err := stmt.Exec(runID, scope, f.Target, f.Host, f.Status, f.FaviconHash,
+			strconv.FormatUint(f.SimHash, 10), f.TitleHash); err != nil {
+			return fmt.Errorf("insert content %s: %w", f.Host, err)
+		}
+		saved++
+	}
+	if saved == 0 {
+		// Nothing worth persisting (e.g. every host failed this run): roll back so
+		// no empty content row shadows the previous baseline.
+		return tx.Rollback()
+	}
+	return tx.Commit()
+}
+
+// LatestContentFingerprints returns the content fingerprints from the most
+// recent run of scope that recorded any (so an intermittent --content run does
+// not flag everything as changed). It returns a nil slice when no content
+// collection has happened yet.
+func (s *Store) LatestContentFingerprints(scope string) ([]model.ContentFingerprint, error) {
+	var runID int64
+	err := s.db.QueryRow(`SELECT run_id FROM content_fingerprints WHERE scope = ? ORDER BY run_id DESC LIMIT 1`, scope).Scan(&runID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("latest content run: %w", err)
+	}
+	rows, err := s.db.Query(`SELECT target, host, status, favicon, simhash, title FROM content_fingerprints WHERE run_id = ?`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("query content: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.ContentFingerprint
+	for rows.Next() {
+		var (
+			f                      model.ContentFingerprint
+			target, favicon, title sql.NullString
+			simhash                string
+		)
+		if err := rows.Scan(&target, &f.Host, &f.Status, &favicon, &simhash, &title); err != nil {
+			return nil, fmt.Errorf("scan content: %w", err)
+		}
+		f.Target = target.String
+		f.FaviconHash = favicon.String
+		f.TitleHash = title.String
+		// simhash is stored as base-10 TEXT; a malformed value degrades to 0,
+		// which the diff treats as "no body fingerprint" rather than erroring.
+		f.SimHash, _ = strconv.ParseUint(simhash, 10, 64)
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // Prune keeps only the most recent keep runs for scope (and their assets),
 // deleting older snapshots so the database stays bounded over long-running
 // monitoring. keep <= 0 is a no-op (retain everything).
@@ -386,6 +482,12 @@ func (s *Store) Prune(scope string, keep int) error {
 			SELECT id FROM runs WHERE scope = ? ORDER BY id DESC LIMIT ?)`,
 		scope, scope, keep); err != nil {
 		return fmt.Errorf("prune dns: %w", err)
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM content_fingerprints WHERE scope = ? AND run_id NOT IN (
+			SELECT id FROM runs WHERE scope = ? ORDER BY id DESC LIMIT ?)`,
+		scope, scope, keep); err != nil {
+		return fmt.Errorf("prune content: %w", err)
 	}
 	if _, err := tx.Exec(
 		`DELETE FROM runs WHERE scope = ? AND id NOT IN (
