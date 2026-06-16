@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-17
+
 ### Added
 - **DNS-record change monitoring** (`--dns`): tracks each host's `CNAME` and
   `NS` records and reports a `DNS_CHANGE` when they move between runs. `NS`
@@ -35,6 +37,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.git`, …) is promoted to high priority and starred in the alert, so the
   bounty-likely asset survives a high `min_priority` and stands out. A built-in
   default keyword set applies; override per scope with an `interesting:` list.
+- **Zero-friction distribution**: prebuilt binaries for Linux/macOS/Windows
+  (amd64/arm64), a multi-arch Docker image (`Dockerfile` + `Dockerfile.goreleaser`),
+  and a Homebrew tap — all produced by a `goreleaser` release pipeline wired into
+  the `release` workflow so a tag push ships every artifact. Install no longer
+  requires a Go toolchain.
 
 ## [0.6.0] - 2026-06-15
 
