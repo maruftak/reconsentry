@@ -377,6 +377,66 @@ Unlike the active probes, DNS resolution only queries resolvers (not the
 target's own servers), so `--dns` is benign passive recon and runs even for
 `passive: true` scopes.
 
+## MCP server
+
+`reconsentry mcp` runs a **read-only [MCP](https://modelcontextprotocol.io)
+server over stdio** that exposes the snapshot database to an AI agent (Claude
+Desktop, Claude Code, …), so you can ask about a target's attack surface in
+plain language: *"what new hosts appeared in acme since the last run?"*,
+*"list the live admin hosts"*, *"show me the high-priority changes."*
+
+It is strictly reporting over **already-collected** data. It never scans,
+probes, resolves, or writes — every tool is a pure read, the database is opened
+in SQLite read-only mode, and the tools are annotated read-only so the agent
+knows they have no side effects. Run `reconsentry run …` to collect; run
+`reconsentry mcp` to let an agent explore what was collected.
+
+```bash
+# point it at a database a previous run populated
+reconsentry mcp --db reconsentry.db
+
+# --config is optional and only validates the file; scopes come from the db
+reconsentry mcp --db reconsentry.db --config scope.yaml
+```
+
+It speaks MCP on stdout/stdin and prints only diagnostics to stderr, so it is
+meant to be launched by an MCP client rather than run interactively.
+
+**Tools exposed**
+
+| Tool           | Arguments                                                              | Returns                                                                                  |
+| -------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `list_scopes`  | —                                                                     | the scope (program) names present in the database                                        |
+| `list_assets`  | `scope` (optional if the db has one scope), `filter` (optional substring) | latest-snapshot hosts: `host`, `alive`, `status`, `ip`, `technologies`                   |
+| `list_history` | `scope` (optional if the db has one scope)                            | recorded runs (`run_id`, `timestamp`, `asset_count`), most recent first                  |
+| `get_changes`  | `scope`, `from_run_id`/`to_run_id` (optional), `min_priority` (`low`/`medium`/`high`) | classified changes — defaults to latest run vs the previous one — each with `kind`, `host`, `priority`, `detail` |
+
+Unknown scopes or run ids come back as a clear tool error (e.g. `scope "ghost"
+not found; available: acme`), never a crash. `get_changes` reuses the same diff
+engine and priority filter as the monitor, so the changes match what an alert
+would have reported.
+
+**Claude Desktop / Claude Code config**
+
+Add an entry to your MCP client config (Claude Desktop:
+`claude_desktop_config.json`; Claude Code: `~/.claude.json` or
+`.mcp.json`), pointing `command` at the `reconsentry` binary and giving it the
+absolute path to your database:
+
+```json
+{
+  "mcpServers": {
+    "reconsentry": {
+      "command": "/usr/local/bin/reconsentry",
+      "args": ["mcp", "--db", "/path/to/reconsentry.db"]
+    }
+  }
+}
+```
+
+Restart the client and ask it about your scopes. Only expose databases for
+targets you are authorized to monitor.
+
 ### Telegram and email notifications
 
 Telegram and email destinations live under the same `notify:` block as Slack,
@@ -448,6 +508,8 @@ The planned roadmap has shipped: multi-scope configs, `history` / `assets`,
       (zone-hijack and takeover-precursor signals)
 - [x] **`MX` / `TXT` record monitoring** (`--dns`) — mail-flow changes plus
       email-spoof signals: SPF/DMARC weakening escalates `TXT_CHANGE` to high
+- [x] **read-only MCP server** (`reconsentry mcp`) — query a target's stored
+      attack surface conversationally from an AI agent (no scanning, no writes)
 
 Next on the "deep diff" track (each a new change kind on the same engine):
 - [ ] favicon-hash change — a re-platformed host = fresh attack surface

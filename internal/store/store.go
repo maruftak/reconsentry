@@ -5,6 +5,8 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -69,6 +71,51 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 	return &Store{db: db}, nil
+}
+
+// OpenReadOnly opens an existing snapshot database at path read-only: it never
+// creates the file, never writes the schema, and the connection is opened in
+// SQLite read-only mode so a stray write fails loudly instead of mutating
+// collected data. It is the entry point for read-only reporting surfaces (e.g.
+// the MCP server). It errors if the database does not exist or is unreadable.
+func OpenReadOnly(path string) (*Store, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("open store read-only: %w", err)
+	}
+	// modernc honours the SQLite "mode=ro" URI parameter, so any write attempt
+	// returns an error instead of mutating the file.
+	dsn := "file:" + filepath.ToSlash(path) + "?mode=ro"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open store read-only: %w", err)
+	}
+	// Force a connection so a missing/locked/corrupt db fails here, not mid-query.
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open store read-only: %w", err)
+	}
+	return &Store{db: db}, nil
+}
+
+// Scopes returns the distinct scope names present in the database, sorted, so a
+// reporting client can enumerate what has been collected without prior
+// knowledge of the config. An empty database yields a nil slice, not an error.
+func (s *Store) Scopes() ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT scope FROM runs ORDER BY scope`)
+	if err != nil {
+		return nil, fmt.Errorf("query scopes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan scope: %w", err)
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
 }
 
 // Close releases the database handle.

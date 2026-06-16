@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -40,6 +41,82 @@ func TestAssetsForRun(t *testing.T) {
 	// An unknown run id yields no assets, no error.
 	if got, err := st.AssetsForRun(9999); err != nil || got != nil {
 		t.Fatalf("unknown run: want nil,nil; got %v, %v", got, err)
+	}
+}
+
+func TestScopes(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "scopes.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// Empty database -> no scopes, no error.
+	if got, err := st.Scopes(); err != nil || len(got) != 0 {
+		t.Fatalf("empty db: want [],nil; got %v, %v", got, err)
+	}
+
+	// Distinct, sorted; a scope with two runs appears once.
+	if _, err := st.SaveRun("zeta", time.Now(), []model.Asset{{Host: "a.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveRun("alpha", time.Now(), []model.Asset{{Host: "b.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveRun("alpha", time.Now(), []model.Asset{{Host: "c.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.Scopes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "alpha" || got[1] != "zeta" {
+		t.Fatalf("want [alpha zeta] sorted+distinct, got %v", got)
+	}
+}
+
+func TestOpenReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ro.db")
+
+	// Opening a nonexistent db read-only must error (never create it).
+	if _, err := OpenReadOnly(path); err == nil {
+		t.Fatal("OpenReadOnly on missing db: want error, got nil")
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("OpenReadOnly must not create the database file")
+	}
+
+	// Seed via a normal handle, close it, then reopen read-only and read back.
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveRun("s", time.Now(), []model.Asset{{Host: "a.example.com", Alive: true, Status: 200}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ro, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatalf("OpenReadOnly on existing db: %v", err)
+	}
+	defer ro.Close()
+
+	if scopes, err := ro.Scopes(); err != nil || len(scopes) != 1 || scopes[0] != "s" {
+		t.Fatalf("read-only Scopes: want [s], got %v (%v)", scopes, err)
+	}
+	if assets, err := ro.LatestAssets("s"); err != nil || len(assets) != 1 {
+		t.Fatalf("read-only LatestAssets: want 1 asset, got %v (%v)", assets, err)
+	}
+
+	// A write through the read-only handle must be rejected, proving the file
+	// cannot be mutated by a reporting surface.
+	if _, err := ro.SaveRun("s", time.Now(), []model.Asset{{Host: "x"}}); err == nil {
+		t.Error("write through read-only handle: want error, got nil")
 	}
 }
 
