@@ -58,7 +58,7 @@ func MarkInteresting(changes []diff.Change, keywords []string) []diff.Change {
 		if c.Kind != diff.NewHost && c.Kind != diff.HostLive {
 			continue
 		}
-		hit := matchKeyword(c.Host, keywords)
+		hit := InterestingMatch(c.Host, keywords)
 		if hit == "" {
 			continue
 		}
@@ -70,7 +70,15 @@ func MarkInteresting(changes []diff.Change, keywords []string) []diff.Change {
 	return out
 }
 
-func matchKeyword(host string, keywords []string) string {
+// InterestingMatch returns the first keyword whose substring appears in host
+// (case-insensitive), or "" when none match. An empty keyword list falls back
+// to DefaultInteresting. It is the single source of truth for the "interesting
+// host" heuristic, shared by MarkInteresting and the correlation engine, so the
+// two never drift on what counts as a high-value asset.
+func InterestingMatch(host string, keywords []string) string {
+	if len(keywords) == 0 {
+		keywords = DefaultInteresting
+	}
 	h := strings.ToLower(host)
 	for _, k := range keywords {
 		if k == "" {

@@ -5,6 +5,9 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +59,18 @@ CREATE TABLE IF NOT EXISTS dns_records (
 );
 CREATE INDEX IF NOT EXISTS idx_dns_run ON dns_records(run_id);
 CREATE INDEX IF NOT EXISTS idx_dns_scope ON dns_records(scope, run_id);
+CREATE TABLE IF NOT EXISTS content_fingerprints (
+	run_id  INTEGER NOT NULL,
+	scope   TEXT NOT NULL,
+	target  TEXT,
+	host    TEXT NOT NULL,
+	status  INTEGER NOT NULL DEFAULT 0,
+	favicon TEXT,
+	simhash TEXT NOT NULL DEFAULT '0',
+	title   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_content_run ON content_fingerprints(run_id);
+CREATE INDEX IF NOT EXISTS idx_content_scope ON content_fingerprints(scope, run_id);
 `
 
 // Open opens (creating if needed) the snapshot database at path.
@@ -69,6 +84,51 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 	return &Store{db: db}, nil
+}
+
+// OpenReadOnly opens an existing snapshot database at path read-only: it never
+// creates the file, never writes the schema, and the connection is opened in
+// SQLite read-only mode so a stray write fails loudly instead of mutating
+// collected data. It is the entry point for read-only reporting surfaces (e.g.
+// the MCP server). It errors if the database does not exist or is unreadable.
+func OpenReadOnly(path string) (*Store, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("open store read-only: %w", err)
+	}
+	// modernc honours the SQLite "mode=ro" URI parameter, so any write attempt
+	// returns an error instead of mutating the file.
+	dsn := "file:" + filepath.ToSlash(path) + "?mode=ro"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open store read-only: %w", err)
+	}
+	// Force a connection so a missing/locked/corrupt db fails here, not mid-query.
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open store read-only: %w", err)
+	}
+	return &Store{db: db}, nil
+}
+
+// Scopes returns the distinct scope names present in the database, sorted, so a
+// reporting client can enumerate what has been collected without prior
+// knowledge of the config. An empty database yields a nil slice, not an error.
+func (s *Store) Scopes() ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT scope FROM runs ORDER BY scope`)
+	if err != nil {
+		return nil, fmt.Errorf("query scopes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan scope: %w", err)
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
 }
 
 // Close releases the database handle.
@@ -309,6 +369,89 @@ func (s *Store) LatestDNSRecords(scope string) ([]model.DNSRecord, error) {
 	return out, rows.Err()
 }
 
+// SaveContentFingerprints persists the content fingerprints collected for a run.
+// Only NON-FAILED fingerprints are stored — one with a status, a favicon hash,
+// or a nonzero simhash. A failed/empty fetch (host only) is dropped so a
+// transient outage never overwrites the baseline a later run diffs against. The
+// 64-bit simhash is stored as TEXT (base-10) so the high bit round-trips without
+// SQLite's signed-integer coercion.
+func (s *Store) SaveContentFingerprints(runID int64, scope string, fps []model.ContentFingerprint) error {
+	if len(fps) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin content: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(
+		`INSERT INTO content_fingerprints(run_id, scope, target, host, status, favicon, simhash, title)
+		 VALUES(?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		return fmt.Errorf("prepare content: %w", err)
+	}
+	defer stmt.Close()
+
+	saved := 0
+	for _, f := range fps {
+		if f.Status == 0 && f.SimHash == 0 && f.FaviconHash == "" {
+			continue // failed/empty fetch: do not clobber the baseline
+		}
+		if _, err := stmt.Exec(runID, scope, f.Target, f.Host, f.Status, f.FaviconHash,
+			strconv.FormatUint(f.SimHash, 10), f.TitleHash); err != nil {
+			return fmt.Errorf("insert content %s: %w", f.Host, err)
+		}
+		saved++
+	}
+	if saved == 0 {
+		// Nothing worth persisting (e.g. every host failed this run): roll back so
+		// no empty content row shadows the previous baseline.
+		return tx.Rollback()
+	}
+	return tx.Commit()
+}
+
+// LatestContentFingerprints returns the content fingerprints from the most
+// recent run of scope that recorded any (so an intermittent --content run does
+// not flag everything as changed). It returns a nil slice when no content
+// collection has happened yet.
+func (s *Store) LatestContentFingerprints(scope string) ([]model.ContentFingerprint, error) {
+	var runID int64
+	err := s.db.QueryRow(`SELECT run_id FROM content_fingerprints WHERE scope = ? ORDER BY run_id DESC LIMIT 1`, scope).Scan(&runID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("latest content run: %w", err)
+	}
+	rows, err := s.db.Query(`SELECT target, host, status, favicon, simhash, title FROM content_fingerprints WHERE run_id = ?`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("query content: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.ContentFingerprint
+	for rows.Next() {
+		var (
+			f                      model.ContentFingerprint
+			target, favicon, title sql.NullString
+			simhash                string
+		)
+		if err := rows.Scan(&target, &f.Host, &f.Status, &favicon, &simhash, &title); err != nil {
+			return nil, fmt.Errorf("scan content: %w", err)
+		}
+		f.Target = target.String
+		f.FaviconHash = favicon.String
+		f.TitleHash = title.String
+		// simhash is stored as base-10 TEXT; a malformed value degrades to 0,
+		// which the diff treats as "no body fingerprint" rather than erroring.
+		f.SimHash, _ = strconv.ParseUint(simhash, 10, 64)
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // Prune keeps only the most recent keep runs for scope (and their assets),
 // deleting older snapshots so the database stays bounded over long-running
 // monitoring. keep <= 0 is a no-op (retain everything).
@@ -339,6 +482,12 @@ func (s *Store) Prune(scope string, keep int) error {
 			SELECT id FROM runs WHERE scope = ? ORDER BY id DESC LIMIT ?)`,
 		scope, scope, keep); err != nil {
 		return fmt.Errorf("prune dns: %w", err)
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM content_fingerprints WHERE scope = ? AND run_id NOT IN (
+			SELECT id FROM runs WHERE scope = ? ORDER BY id DESC LIMIT ?)`,
+		scope, scope, keep); err != nil {
+		return fmt.Errorf("prune content: %w", err)
 	}
 	if _, err := tx.Exec(
 		`DELETE FROM runs WHERE scope = ? AND id NOT IN (

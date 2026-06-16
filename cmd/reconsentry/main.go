@@ -19,6 +19,7 @@ import (
 	"github.com/maruftak/reconsentry/internal/collect"
 	"github.com/maruftak/reconsentry/internal/config"
 	"github.com/maruftak/reconsentry/internal/diff"
+	"github.com/maruftak/reconsentry/internal/mcpserver"
 	"github.com/maruftak/reconsentry/internal/model"
 	"github.com/maruftak/reconsentry/internal/notify"
 	"github.com/maruftak/reconsentry/internal/report"
@@ -49,6 +50,8 @@ func main() {
 		os.Exit(cmdBadge(os.Args[2:]))
 	case "diff":
 		os.Exit(cmdDiff(os.Args[2:]))
+	case "mcp":
+		os.Exit(cmdMCP(os.Args[2:]))
 	case "version", "-v", "--version":
 		fmt.Printf("reconsentry %s\n", version)
 	case "help", "-h", "--help":
@@ -71,6 +74,7 @@ usage:
   reconsentry report --config scope.yaml [--scope name] [-o out.html]  self-contained HTML surface report
   reconsentry badge --config scope.yaml [--scope name] [-o badge.svg]   live attack-surface SVG badge
   reconsentry diff --config scope.yaml [--scope name] [--json] [idA idB]  changes between two stored runs
+  reconsentry mcp --db reconsentry.db [--config scope.yaml]   read-only MCP server over stdio (for AI agents)
   reconsentry version
 
 A scope file holds one scope, or many under a top-level "scopes:" list.
@@ -87,7 +91,9 @@ run flags:
   --cert-check      check live hosts' TLS certs; near-expiry shows as CERT_EXPIRING
   --cert-days int   CERT_EXPIRING window in days (default 30; with --cert-check)
   --takeover        check hosts for dangling DNS records; risk shows as TAKEOVER_RISK
-  --dns             track CNAME/NS records; changes show as DNS_CHANGE (passive-safe)
+  --dns             track CNAME/NS/MX/TXT records; changes show as DNS_CHANGE/MX_CHANGE/TXT_CHANGE (passive-safe)
+  --content         fingerprint live hosts' page content; material changes show as CONTENT_CHANGE
+  --correlate       fuse co-occurring changes on one host into a HOT_TARGET finding (a host in motion)
   --dry-run         print changes; do not send notifications
   --json            emit results as JSON (one object per cycle) for piping
   --sarif string    write each cycle's changes to this SARIF file (CI upload)
@@ -109,7 +115,9 @@ func cmdRun(args []string) int {
 	certCheck := fs.Bool("cert-check", false, "check live hosts' TLS certs; near-expiry shows as CERT_EXPIRING")
 	certDays := fs.Int("cert-days", 30, "CERT_EXPIRING window in days (with --cert-check)")
 	takeover := fs.Bool("takeover", false, "check hosts for dangling DNS records; risk shows as TAKEOVER_RISK")
-	dns := fs.Bool("dns", false, "track CNAME/NS records; changes show as DNS_CHANGE")
+	dns := fs.Bool("dns", false, "track CNAME/NS/MX/TXT records; changes show as DNS_CHANGE/MX_CHANGE/TXT_CHANGE")
+	content := fs.Bool("content", false, "fingerprint live hosts' page content; material changes show as CONTENT_CHANGE")
+	correlateChanges := fs.Bool("correlate", false, "fuse co-occurring changes on one host into a HOT_TARGET finding")
 	dryRun := fs.Bool("dry-run", false, "print changes; do not notify")
 	jsonOut := fs.Bool("json", false, "emit run results as JSON (one object per cycle)")
 	sarifPath := fs.String("sarif", "", "write each cycle's changes to this SARIF file (for CI code-scanning upload)")
@@ -175,6 +183,10 @@ func cmdRun(args []string) int {
 		if *dns {
 			dnsChecker = collect.DNSRecords
 		}
+		var contentChecker runner.ContentFunc
+		if *content {
+			contentChecker = collect.ContentFingerprints
+		}
 		jobs = append(jobs, job{
 			cfg: cfg,
 			pipe: &runner.Pipeline{
@@ -187,6 +199,8 @@ func cmdRun(args []string) int {
 				CertDays:  *certDays,
 				Takeover:  takeoverChecker,
 				DNS:       dnsChecker,
+				Content:   contentChecker,
+				Correlate: *correlateChanges,
 				Notifiers: notifiers,
 				Keep:      *keep,
 				MaxHosts:  *maxHosts,
@@ -679,6 +693,42 @@ func cmdDiff(args []string) int {
 	return 0
 }
 
+// cmdMCP serves the snapshot database to an AI agent over a read-only MCP
+// server on stdio. It never scans, probes, or writes — it only reports data
+// already collected by `reconsentry run`. The database is opened read-only so a
+// bug cannot mutate it. --config is optional and, when given, is only validated
+// (the scope list comes from the database itself), so a stale config path fails
+// fast rather than silently.
+func cmdMCP(args []string) int {
+	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
+	dbPath := fs.String("db", "reconsentry.db", "path to sqlite database")
+	cfgPath := fs.String("config", "", "optional scope config to validate (scopes are read from the database)")
+	_ = fs.Parse(args)
+
+	if *cfgPath != "" {
+		if _, err := config.LoadAll(*cfgPath); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+	}
+
+	st, err := store.OpenReadOnly(*dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hint: run `reconsentry run --config scope.yaml --db %s` first to collect a snapshot\n", *dbPath)
+		return 1
+	}
+	defer st.Close()
+
+	// Everything human-facing must go to stderr; stdout is the MCP transport.
+	fmt.Fprintf(os.Stderr, "reconsentry mcp: serving %s read-only over stdio (ctrl-c to stop)\n", *dbPath)
+	if err := mcpserver.Serve(st, version); err != nil {
+		fmt.Fprintf(os.Stderr, "mcp error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 // writeSARIF renders the cycle's changes to a SARIF file, overwriting any
 // previous cycle (last write wins on a continuous interval).
 func writeSARIF(path string, scopes []report.ScopeChanges) error {
@@ -701,6 +751,9 @@ func printResult(res *runner.Result) {
 	}
 	if res.CertErr != nil {
 		fmt.Fprintf(os.Stderr, "cert-check error: %v\n", res.CertErr)
+	}
+	if res.ContentErr != nil {
+		fmt.Fprintf(os.Stderr, "content error: %v\n", res.ContentErr)
 	}
 	for _, e := range res.NotifyErrs {
 		fmt.Fprintf(os.Stderr, "notify error: %v\n", e)
@@ -738,6 +791,9 @@ func printJSON(scope string, res *runner.Result) {
 	}
 	if res.CertErr != nil {
 		fmt.Fprintf(os.Stderr, "cert-check error: %v\n", res.CertErr)
+	}
+	if res.ContentErr != nil {
+		fmt.Fprintf(os.Stderr, "content error: %v\n", res.ContentErr)
 	}
 	for _, e := range res.NotifyErrs {
 		fmt.Fprintf(os.Stderr, "notify error: %v\n", e)

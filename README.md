@@ -360,19 +360,22 @@ scopes.
 
 ### DNS-record monitoring
 
-`--dns` tracks each host's **`CNAME`** and **`NS`** records and reports a
-`DNS_CHANGE` when they move between runs:
+`--dns` tracks each host's **`CNAME`**, **`NS`**, **`MX`**, and **`TXT`** records
+and reports a change when they move between runs:
 
 ```bash
 reconsentry run --config scope.yaml --dns
 ```
 
 ```
-🔴 DNS_CHANGE  acme.com       NS +ns1.new-registrar.com -ns1.old-registrar.com
-🟠 DNS_CHANGE  blog.acme.com  CNAME old.hosting.net → new.hosting.net
+🔴 DNS_CHANGE  acme.com         NS +ns1.new-registrar.com -ns1.old-registrar.com
+🟠 DNS_CHANGE  blog.acme.com    CNAME old.hosting.net → new.hosting.net
+🟠 MX_CHANGE   acme.com         MX aspmx.l.google.com → mx.sendgrid.net
+🔴 TXT_CHANGE  acme.com         TXT v=spf1 ... -all → v=spf1 ... ~all — SPF weakened
+🔴 TXT_CHANGE  _dmarc.acme.com  TXT v=DMARC1; p=reject → v=DMARC1; p=none — DMARC weakened
 ```
 
-Why these two record types:
+Why these record types:
 
 - **`NS` change (high)** — the zone's delegation moved. That can mean a domain
   transfer, a misconfiguration, or a nameserver that's now unclaimed (an NS
@@ -380,15 +383,182 @@ Why these two record types:
 - **`CNAME` change (medium)** — a host now points somewhere new. Often a benign
   infra move, but it's also the first step toward a dangling-record takeover, so
   it pairs naturally with `--takeover`.
+- **`MX` change (medium)** — the host's mail flow moved to a different server
+  set. Could be a planned migration, or mail being silently rerouted.
+- **`TXT` change (low, escalates to high)** — a TXT record set changed. Most are
+  routine (a new SaaS-verification token), so the default is low. But a change
+  that **weakens email authentication** is escalated to **high**: an `SPF`
+  record removed or its terminal `all` qualifier softened (`-all` → `~all` →
+  `?all` → `+all`), or — looking up `_dmarc.<host>` — the `DMARC` record removed
+  or its `p=` policy softened (`reject` → `quarantine` → `none`). These are the
+  changes that newly enable email spoofing of the domain.
 
-`NS` records only exist at zone cuts (the apex and delegated subdomains) and a
-`CNAME` only where one is configured, so plain A-record hosts produce nothing —
-the output stays high-signal. The first `--dns` run is a baseline; later runs
-report the diff.
+`NS` records only exist at zone cuts (the apex and delegated subdomains), and
+`CNAME` / `MX` / `TXT` only where configured, so plain A-record hosts produce
+nothing — the output stays high-signal. The first `--dns` run is a baseline;
+later runs report the diff.
 
 Unlike the active probes, DNS resolution only queries resolvers (not the
 target's own servers), so `--dns` is benign passive recon and runs even for
 `passive: true` scopes.
+
+### Content-change monitoring (`--content`)
+
+A host you already know about is worth re-checking when the **page it serves**
+changes — a re-platform exposes a fresh attack surface, an error page replaced
+by a real app is a new target, and a login or admin panel appearing where there
+wasn't one is a lead. `--content` fingerprints each **live** host's page and
+reports a `CONTENT_CHANGE` when it *materially* moves between runs:
+
+```bash
+reconsentry run --config scope.yaml --content
+```
+
+```
+🔴 CONTENT_CHANGE  api.acme.com    page came online [403 → 200]
+🟠 CONTENT_CHANGE  shop.acme.com   favicon changed (re-platform), body content changed (simhash Δ27/64) + title changed
+```
+
+The fingerprint is three stable signals, none of which is the raw page:
+
+- **favicon hash** — httpx's mmh3 favicon hash (when available). A re-skin often
+  swaps the favicon first, so a flip is a strong re-platform tell.
+- **body simhash** — a 64-bit [simhash](https://en.wikipedia.org/wiki/SimHash)
+  of the page's *normalized* text. Near-identical pages share most bits, so a
+  change is measured as a Hamming distance; only a move past a conservative
+  threshold counts as material.
+- **title hash** — a cheap corroborator. It is mentioned in the alert alongside
+  a real trigger but **never fires a change on its own** (titles churn for
+  cosmetic reasons constantly).
+
+A change fires when the favicon flips, the body simhash moves past the
+threshold, or the page **comes online** (a non-`2xx` status crossing into
+`2xx`). Coming online is `high` priority — an app just appeared; everything else
+is `medium`.
+
+The reason it doesn't drown you in false positives is the **normalization**
+before the simhash: the body is lowercased, stripped of HTML tags to plain text,
+and scrubbed of high-entropy per-render noise — CSRF tokens, nonces, long
+hex/base64 runs, ISO timestamps, and epoch seconds — before being shingled into
+word 3-grams. So a page that only rotated its anti-CSRF token or its
+"generated at" timestamp hashes to (nearly) the same value and stays quiet,
+while a genuinely new page moves well past the threshold.
+
+Because it fetches page bodies, `--content` is **active traffic** and is skipped
+for `passive: true` scopes. The first `--content` run is a baseline; later runs
+report the diff. A host that fails to serve on a given run is ignored rather
+than alerted, and its failed fetch never overwrites the stored baseline — so a
+transient outage doesn't cost you the comparison point.
+
+### Signal correlation (`--correlate`)
+
+Each change kind above already alerts on its own. But the signal a human can't
+eyeball across hundreds of hosts is when **several distinct kinds land on the
+*same* host in one run** — a host that just appeared *and* picked up a new
+technology *and* had its CNAME flip is not three small events, it's one story:
+that target is actively moving (a migration, a launch, a soft target mid-deploy).
+`--correlate` fuses those co-occurring changes into a single high-confidence
+`HOT_TARGET` finding so the host in motion rises above the per-event churn.
+
+```bash
+reconsentry run --config scope.yaml --correlate
+```
+
+```
+🚨 HOT_TARGET  blog.acme.com    2 correlated signals: DNS_CHANGE · TAKEOVER_RISK — target likely shipping, prioritize
+🔴 HOT_TARGET  staging.acme.com 3 correlated signals: NEW_HOST · NEW_TECH (Jenkins) · interesting:staging — target likely shipping, prioritize
+```
+
+It is pure post-processing of the changes a run already computed — no extra
+network, scanning, or I/O, and fully deterministic. The originals are **kept**;
+the `HOT_TARGET` is *added* alongside them.
+
+How a host qualifies. Each contributing change kind on the host carries a weight
+(higher = a stronger sign of motion):
+
+| Signal | Weight | | Signal | Weight |
+| --- | --- | --- | --- | --- |
+| `TAKEOVER_RISK` | 4 | | `MX_CHANGE` | 2 |
+| `DNS_CHANGE` | 3 | | `TXT_CHANGE` | 2 |
+| `CONTENT_CHANGE` | 3 | | `NEW_TECH` | 1 |
+| `NEW_HOST` | 2 | | `STATUS_CHANGE` | 1 |
+| `HOST_LIVE` | 2 | | `CERT_EXPIRING` / `IP_CHANGE` / `HOST_GONE` | 1 |
+
+A host is fused into a `HOT_TARGET` when **both**:
+
+- it has **≥ 2 distinct** contributing change kinds — the rule that makes a
+  finding genuinely *correlated*, never a single loud signal (a lone
+  `TAKEOVER_RISK` scores 4 but already alerts on its own, so it is not re-fused); and
+- its **weighted score ≥ 4** (the default threshold).
+
+Booster: if the host name matches the [interesting-host](#interesting-host-highlighting)
+keywords (`admin`, `staging`, `api`, `jenkins`, …) it gets **+2**, so a
+bounty-likely asset crosses the bar on weaker evidence. The finding's priority is
+**critical** when any contributing change is critical (e.g. a claimable
+takeover), otherwise **high**; the detail lists the contributing signals in a
+stable, sorted order. Because `HOT_TARGET` is just another change kind, it flows
+through prioritization, every notifier, the JSON output, and the SARIF export
+exactly like the rest. With the flag off, nothing changes.
+
+## MCP server
+
+`reconsentry mcp` runs a **read-only [MCP](https://modelcontextprotocol.io)
+server over stdio** that exposes the snapshot database to an AI agent (Claude
+Desktop, Claude Code, …), so you can ask about a target's attack surface in
+plain language: *"what new hosts appeared in acme since the last run?"*,
+*"list the live admin hosts"*, *"show me the high-priority changes."*
+
+It is strictly reporting over **already-collected** data. It never scans,
+probes, resolves, or writes — every tool is a pure read, the database is opened
+in SQLite read-only mode, and the tools are annotated read-only so the agent
+knows they have no side effects. Run `reconsentry run …` to collect; run
+`reconsentry mcp` to let an agent explore what was collected.
+
+```bash
+# point it at a database a previous run populated
+reconsentry mcp --db reconsentry.db
+
+# --config is optional and only validates the file; scopes come from the db
+reconsentry mcp --db reconsentry.db --config scope.yaml
+```
+
+It speaks MCP on stdout/stdin and prints only diagnostics to stderr, so it is
+meant to be launched by an MCP client rather than run interactively.
+
+**Tools exposed**
+
+| Tool           | Arguments                                                              | Returns                                                                                  |
+| -------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `list_scopes`  | —                                                                     | the scope (program) names present in the database                                        |
+| `list_assets`  | `scope` (optional if the db has one scope), `filter` (optional substring) | latest-snapshot hosts: `host`, `alive`, `status`, `ip`, `technologies`                   |
+| `list_history` | `scope` (optional if the db has one scope)                            | recorded runs (`run_id`, `timestamp`, `asset_count`), most recent first                  |
+| `get_changes`  | `scope`, `from_run_id`/`to_run_id` (optional), `min_priority` (`low`/`medium`/`high`) | classified changes — defaults to latest run vs the previous one — each with `kind`, `host`, `priority`, `detail` |
+
+Unknown scopes or run ids come back as a clear tool error (e.g. `scope "ghost"
+not found; available: acme`), never a crash. `get_changes` reuses the same diff
+engine and priority filter as the monitor, so the changes match what an alert
+would have reported.
+
+**Claude Desktop / Claude Code config**
+
+Add an entry to your MCP client config (Claude Desktop:
+`claude_desktop_config.json`; Claude Code: `~/.claude.json` or
+`.mcp.json`), pointing `command` at the `reconsentry` binary and giving it the
+absolute path to your database:
+
+```json
+{
+  "mcpServers": {
+    "reconsentry": {
+      "command": "/usr/local/bin/reconsentry",
+      "args": ["mcp", "--db", "/path/to/reconsentry.db"]
+    }
+  }
+}
+```
+
+Restart the client and ask it about your scopes. Only expose databases for
+targets you are authorized to monitor.
 
 ### Telegram and email notifications
 
@@ -442,6 +612,10 @@ notify:
 | `CERT_EXPIRING` | high     | a host's TLS cert is near expiry (opt-in via `--cert-check`) |
 | `TAKEOVER_RISK`  | critical | a host's dangling DNS record may be claimable — a subdomain takeover (opt-in via `--takeover`) |
 | `DNS_CHANGE`     | high/med | a host's `NS` (high — delegation change) or `CNAME` (medium) record set changed (opt-in via `--dns`) |
+| `MX_CHANGE`      | medium   | a host's `MX` (mail-flow) record set changed (opt-in via `--dns`) |
+| `TXT_CHANGE`     | low/high | a host's `TXT` record set changed — high when it weakens email auth (SPF `all` softened/removed or DMARC `p=` softened/removed) (opt-in via `--dns`) |
+| `CONTENT_CHANGE` | high/med | a known host's served page materially changed — a re-platform, a newly-exposed login/admin page, an app where an error page used to be, or a host coming online; high when the page comes online (non-2xx → 2xx), else medium (opt-in via `--content`) |
+| `HOT_TARGET`     | critical/high | several distinct change kinds co-occurred on one host in a single run — a target in motion (opt-in via `--correlate`; critical when a contributing signal is critical, else high) |
 
 ## Roadmap
 
@@ -457,14 +631,18 @@ The planned roadmap has shipped: multi-scope configs, `history` / `assets`,
       host's dangling DNS record becomes claimable
 - [x] **DNS-record change monitoring** (`--dns`) — `CNAME` / `NS` flips
       (zone-hijack and takeover-precursor signals)
-
-Next on the "deep diff" track (each a new change kind on the same engine):
-
-- [ ] `MX` / `TXT` record monitoring — email-spoof (SPF/DMARC) and new-SaaS
-      onboarding signals at the apex
-- [ ] favicon-hash change — a re-platformed host = fresh attack surface
-- [ ] response-body (simhash) content diff — a new login form / admin page
-      appearing on a known host
+- [x] **`MX` / `TXT` record monitoring** (`--dns`) — mail-flow changes plus
+      email-spoof signals: SPF/DMARC weakening escalates `TXT_CHANGE` to high
+- [x] **read-only MCP server** (`reconsentry mcp`) — query a target's stored
+      attack surface conversationally from an AI agent (no scanning, no writes)
+- [x] **signal correlation** (`--correlate`) — fuse co-occurring change kinds on
+      one host into a single `HOT_TARGET` finding (a target in motion)
+- [x] **content-change monitoring** (`--content`) — fingerprint each live host's
+      page (favicon hash + body simhash + title) and alert when it *materially*
+      changes: a re-platform, a newly-exposed login/admin page, an app where an
+      error page used to be, or a host coming online. Stable across cosmetic
+      noise (CSRF tokens, timestamps, nonces). Unifies the favicon-hash and
+      response-body (simhash) diff items.
 
 Ideas for what's next are welcome — open an issue.
 

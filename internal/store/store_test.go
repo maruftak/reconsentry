@@ -1,6 +1,8 @@
 package store
 
 import (
+	"math"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -40,6 +42,82 @@ func TestAssetsForRun(t *testing.T) {
 	// An unknown run id yields no assets, no error.
 	if got, err := st.AssetsForRun(9999); err != nil || got != nil {
 		t.Fatalf("unknown run: want nil,nil; got %v, %v", got, err)
+	}
+}
+
+func TestScopes(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "scopes.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// Empty database -> no scopes, no error.
+	if got, err := st.Scopes(); err != nil || len(got) != 0 {
+		t.Fatalf("empty db: want [],nil; got %v, %v", got, err)
+	}
+
+	// Distinct, sorted; a scope with two runs appears once.
+	if _, err := st.SaveRun("zeta", time.Now(), []model.Asset{{Host: "a.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveRun("alpha", time.Now(), []model.Asset{{Host: "b.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveRun("alpha", time.Now(), []model.Asset{{Host: "c.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.Scopes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "alpha" || got[1] != "zeta" {
+		t.Fatalf("want [alpha zeta] sorted+distinct, got %v", got)
+	}
+}
+
+func TestOpenReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ro.db")
+
+	// Opening a nonexistent db read-only must error (never create it).
+	if _, err := OpenReadOnly(path); err == nil {
+		t.Fatal("OpenReadOnly on missing db: want error, got nil")
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("OpenReadOnly must not create the database file")
+	}
+
+	// Seed via a normal handle, close it, then reopen read-only and read back.
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveRun("s", time.Now(), []model.Asset{{Host: "a.example.com", Alive: true, Status: 200}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ro, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatalf("OpenReadOnly on existing db: %v", err)
+	}
+	defer ro.Close()
+
+	if scopes, err := ro.Scopes(); err != nil || len(scopes) != 1 || scopes[0] != "s" {
+		t.Fatalf("read-only Scopes: want [s], got %v (%v)", scopes, err)
+	}
+	if assets, err := ro.LatestAssets("s"); err != nil || len(assets) != 1 {
+		t.Fatalf("read-only LatestAssets: want 1 asset, got %v (%v)", assets, err)
+	}
+
+	// A write through the read-only handle must be rejected, proving the file
+	// cannot be mutated by a reporting surface.
+	if _, err := ro.SaveRun("s", time.Now(), []model.Asset{{Host: "x"}}); err == nil {
+		t.Error("write through read-only handle: want error, got nil")
 	}
 }
 
@@ -301,5 +379,111 @@ func TestPrune(t *testing.T) {
 	}
 	if r, _ := st.Runs("other"); len(r) != 1 {
 		t.Errorf("pruning scope s must not touch scope other, got %d runs", len(r))
+	}
+}
+
+func TestContentFingerprintRoundTrip(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "cf.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// No content collection yet -> nil, nil.
+	if fps, err := st.LatestContentFingerprints("s"); err != nil || fps != nil {
+		t.Fatalf("empty scope: want nil,nil; got %v, %v", fps, err)
+	}
+
+	run1, err := st.SaveRun("s", time.Now(), []model.Asset{{Host: "a.example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One fingerprint with the HIGH BIT SET in the simhash (proves TEXT storage
+	// is sign-safe), one with an empty target, and one FAILED fetch that must be
+	// dropped rather than persisted.
+	highBit := uint64(1) << 63
+	fps := []model.ContentFingerprint{
+		{Target: "example.com", Host: "a.example.com", Status: 200, FaviconHash: "-99", SimHash: highBit, TitleHash: "t1"},
+		{Host: "b.example.com", Status: 200, SimHash: math.MaxUint64},
+		{Host: "dead.example.com"}, // failed/empty: Status 0, SimHash 0, no favicon
+	}
+	if err := st.SaveContentFingerprints(run1, "s", fps); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.LatestContentFingerprints("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 stored fingerprints (failed one dropped), got %d: %+v", len(got), got)
+	}
+	byHost := map[string]model.ContentFingerprint{}
+	for _, f := range got {
+		byHost[f.Host] = f
+	}
+	if _, ok := byHost["dead.example.com"]; ok {
+		t.Error("a failed/empty fingerprint must not be persisted")
+	}
+	a := byHost["a.example.com"]
+	if a.SimHash != highBit {
+		t.Errorf("high-bit simhash did not round-trip: got %#x want %#x", a.SimHash, highBit)
+	}
+	if a.Target != "example.com" || a.Status != 200 || a.FaviconHash != "-99" || a.TitleHash != "t1" {
+		t.Errorf("round-trip mismatch for a: %+v", a)
+	}
+	if b := byHost["b.example.com"]; b.SimHash != math.MaxUint64 || b.Target != "" {
+		t.Errorf("round-trip mismatch for b (max simhash / empty target): %+v", b)
+	}
+}
+
+// SaveContentFingerprints with only failed fetches must not create a row that
+// shadows a prior baseline, and Prune must drop old content rows.
+func TestContentFingerprintAllFailedAndPrune(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "cf2.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	run1, _ := st.SaveRun("s", time.Now(), []model.Asset{{Host: "a.example.com"}})
+	if err := st.SaveContentFingerprints(run1, "s", []model.ContentFingerprint{
+		{Host: "a.example.com", Status: 200, SimHash: 42},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A later run where every host failed: saving must not shadow run1's baseline.
+	run2, _ := st.SaveRun("s", time.Now().Add(time.Hour), []model.Asset{{Host: "a.example.com"}})
+	if err := st.SaveContentFingerprints(run2, "s", []model.ContentFingerprint{
+		{Host: "a.example.com"}, // failed
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.LatestContentFingerprints("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].SimHash != 42 {
+		t.Fatalf("an all-failed run must not shadow the baseline, got %+v", got)
+	}
+
+	// Two more good runs, then Prune(1) leaves a single run and drops the rest.
+	for i := 0; i < 2; i++ {
+		r, _ := st.SaveRun("s", time.Now().Add(time.Duration(i+2)*time.Hour), []model.Asset{{Host: "a.example.com"}})
+		if err := st.SaveContentFingerprints(r, "s", []model.ContentFingerprint{
+			{Host: "a.example.com", Status: 200, SimHash: uint64(100 + i)},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Prune("s", 1); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.LatestContentFingerprints("s"); len(got) != 1 || got[0].SimHash != 101 {
+		t.Fatalf("after Prune(1), want only the newest content row, got %+v", got)
+	}
+	// And the old run's content rows are gone (the baseline run1 was pruned).
+	if fps, _ := st.LatestContentFingerprints("s"); len(fps) == 1 && fps[0].SimHash == 42 {
+		t.Error("Prune should have dropped the old baseline content row")
 	}
 }
