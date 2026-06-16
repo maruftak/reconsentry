@@ -335,19 +335,22 @@ scopes.
 
 ### DNS-record monitoring
 
-`--dns` tracks each host's **`CNAME`** and **`NS`** records and reports a
-`DNS_CHANGE` when they move between runs:
+`--dns` tracks each host's **`CNAME`**, **`NS`**, **`MX`**, and **`TXT`** records
+and reports a change when they move between runs:
 
 ```bash
 reconsentry run --config scope.yaml --dns
 ```
 
 ```
-🔴 DNS_CHANGE  acme.com       NS +ns1.new-registrar.com -ns1.old-registrar.com
-🟠 DNS_CHANGE  blog.acme.com  CNAME old.hosting.net → new.hosting.net
+🔴 DNS_CHANGE  acme.com         NS +ns1.new-registrar.com -ns1.old-registrar.com
+🟠 DNS_CHANGE  blog.acme.com    CNAME old.hosting.net → new.hosting.net
+🟠 MX_CHANGE   acme.com         MX aspmx.l.google.com → mx.sendgrid.net
+🔴 TXT_CHANGE  acme.com         TXT v=spf1 ... -all → v=spf1 ... ~all — SPF weakened
+🔴 TXT_CHANGE  _dmarc.acme.com  TXT v=DMARC1; p=reject → v=DMARC1; p=none — DMARC weakened
 ```
 
-Why these two record types:
+Why these record types:
 
 - **`NS` change (high)** — the zone's delegation moved. That can mean a domain
   transfer, a misconfiguration, or a nameserver that's now unclaimed (an NS
@@ -355,11 +358,20 @@ Why these two record types:
 - **`CNAME` change (medium)** — a host now points somewhere new. Often a benign
   infra move, but it's also the first step toward a dangling-record takeover, so
   it pairs naturally with `--takeover`.
+- **`MX` change (medium)** — the host's mail flow moved to a different server
+  set. Could be a planned migration, or mail being silently rerouted.
+- **`TXT` change (low, escalates to high)** — a TXT record set changed. Most are
+  routine (a new SaaS-verification token), so the default is low. But a change
+  that **weakens email authentication** is escalated to **high**: an `SPF`
+  record removed or its terminal `all` qualifier softened (`-all` → `~all` →
+  `?all` → `+all`), or — looking up `_dmarc.<host>` — the `DMARC` record removed
+  or its `p=` policy softened (`reject` → `quarantine` → `none`). These are the
+  changes that newly enable email spoofing of the domain.
 
-`NS` records only exist at zone cuts (the apex and delegated subdomains) and a
-`CNAME` only where one is configured, so plain A-record hosts produce nothing —
-the output stays high-signal. The first `--dns` run is a baseline; later runs
-report the diff.
+`NS` records only exist at zone cuts (the apex and delegated subdomains), and
+`CNAME` / `MX` / `TXT` only where configured, so plain A-record hosts produce
+nothing — the output stays high-signal. The first `--dns` run is a baseline;
+later runs report the diff.
 
 Unlike the active probes, DNS resolution only queries resolvers (not the
 target's own servers), so `--dns` is benign passive recon and runs even for
@@ -417,6 +429,8 @@ notify:
 | `CERT_EXPIRING` | high     | a host's TLS cert is near expiry (opt-in via `--cert-check`) |
 | `TAKEOVER_RISK`  | critical | a host's dangling DNS record may be claimable — a subdomain takeover (opt-in via `--takeover`) |
 | `DNS_CHANGE`     | high/med | a host's `NS` (high — delegation change) or `CNAME` (medium) record set changed (opt-in via `--dns`) |
+| `MX_CHANGE`      | medium   | a host's `MX` (mail-flow) record set changed (opt-in via `--dns`) |
+| `TXT_CHANGE`     | low/high | a host's `TXT` record set changed — high when it weakens email auth (SPF `all` softened/removed or DMARC `p=` softened/removed) (opt-in via `--dns`) |
 
 ## Roadmap
 
@@ -432,11 +446,10 @@ The planned roadmap has shipped: multi-scope configs, `history` / `assets`,
       host's dangling DNS record becomes claimable
 - [x] **DNS-record change monitoring** (`--dns`) — `CNAME` / `NS` flips
       (zone-hijack and takeover-precursor signals)
+- [x] **`MX` / `TXT` record monitoring** (`--dns`) — mail-flow changes plus
+      email-spoof signals: SPF/DMARC weakening escalates `TXT_CHANGE` to high
 
 Next on the "deep diff" track (each a new change kind on the same engine):
-
-- [ ] `MX` / `TXT` record monitoring — email-spoof (SPF/DMARC) and new-SaaS
-      onboarding signals at the apex
 - [ ] favicon-hash change — a re-platformed host = fresh attack surface
 - [ ] response-body (simhash) content diff — a new login form / admin page
       appearing on a known host

@@ -25,6 +25,8 @@ const (
 	CertExpiring Kind = "CERT_EXPIRING" // a host's TLS certificate is near expiry
 	TakeoverRisk Kind = "TAKEOVER_RISK" // a host's dangling DNS record may be claimable (subdomain takeover)
 	DNSChange    Kind = "DNS_CHANGE"    // a host's CNAME or NS record set changed
+	MXChange     Kind = "MX_CHANGE"     // a host's MX (mail-flow) record set changed
+	TXTChange    Kind = "TXT_CHANGE"    // a host's TXT record set changed (SPF/DMARC/SaaS-verification)
 )
 
 // Priority levels (higher = more interesting to a hunter). Critical is reserved
@@ -49,6 +51,8 @@ var defaultPriority = map[Kind]int{
 	CertExpiring: High,
 	TakeoverRisk: Critical, // fallback; runner sets priority per finding confidence
 	DNSChange:    Medium,   // fallback; DiffDNS sets High for NS (delegation) changes
+	MXChange:     Medium,   // a mail-flow change
+	TXTChange:    Low,      // fallback; DiffDNS sets High when SPF/DMARC posture weakens
 }
 
 // Change is a single classified difference between snapshots.
@@ -155,16 +159,24 @@ func sortChanges(c []Change) {
 	})
 }
 
+// dnsKey identifies a per-host, per-type record set being diffed.
+type dnsKey struct{ host, typ string }
+
 // DiffDNS compares previous and current DNS record sets (same scope) and returns
-// a DNS_CHANGE per host+type whose value set changed. Pure function. NS changes
-// (a zone-delegation change — a hijack/takeover signal) are High; CNAME changes
-// are Medium (an infra move that can precede a takeover).
+// a change per host+type whose value set changed. Pure function.
+//
+//   - CNAME/NS → DNS_CHANGE. NS (a zone-delegation change — a hijack/takeover
+//     signal) is High; CNAME (an infra move that can precede a takeover) is Medium.
+//   - MX → MX_CHANGE (Medium): a mail-flow change.
+//   - TXT → TXT_CHANGE (Low), escalated to High when the change weakens email
+//     authentication — an SPF record removed or its `all` qualifier softened, or
+//     (for the _dmarc.<host> name) the DMARC record removed or its `p=` policy
+//     softened. See dns_posture.go.
 func DiffDNS(prev, curr []model.DNSRecord) []Change {
-	type key struct{ host, typ string }
-	index := func(recs []model.DNSRecord) map[key]map[string]bool {
-		m := map[key]map[string]bool{}
+	index := func(recs []model.DNSRecord) map[dnsKey]map[string]bool {
+		m := map[dnsKey]map[string]bool{}
 		for _, r := range recs {
-			k := key{r.Host, r.Type}
+			k := dnsKey{r.Host, r.Type}
 			if m[k] == nil {
 				m[k] = map[string]bool{}
 			}
@@ -174,8 +186,8 @@ func DiffDNS(prev, curr []model.DNSRecord) []Change {
 	}
 	prevIdx, currIdx := index(prev), index(curr)
 
-	seen := map[key]bool{}
-	var keys []key
+	seen := map[dnsKey]bool{}
+	var keys []dnsKey
 	for k := range prevIdx {
 		seen[k] = true
 		keys = append(keys, k)
@@ -193,15 +205,29 @@ func DiffDNS(prev, curr []model.DNSRecord) []Change {
 		if len(added) == 0 && len(removed) == 0 {
 			continue
 		}
-		changes = append(changes, Change{
-			Kind:     DNSChange,
-			Host:     k.host,
-			Detail:   dnsDetail(k.typ, added, removed),
-			Priority: dnsPriority(k.typ),
-		})
+		changes = append(changes, dnsChange(k, added, removed, prevIdx[k], currIdx[k]))
 	}
 	sortChanges(changes)
 	return changes
+}
+
+// dnsChange builds the Change for one changed record set, selecting the kind,
+// priority, and detail by record type. prevVals/currVals are the full value
+// sets (not just the delta) so TXT posture can be evaluated.
+func dnsChange(k dnsKey, added, removed []string, prevVals, currVals map[string]bool) Change {
+	switch k.typ {
+	case "MX":
+		return Change{Kind: MXChange, Host: k.host, Detail: dnsDetail(k.typ, added, removed), Priority: Medium}
+	case "TXT":
+		prio, note := txtPosture(k.host, prevVals, currVals)
+		detail := dnsDetail(k.typ, added, removed)
+		if note != "" {
+			detail += " — " + note
+		}
+		return Change{Kind: TXTChange, Host: k.host, Detail: detail, Priority: prio}
+	default: // CNAME, NS
+		return Change{Kind: DNSChange, Host: k.host, Detail: dnsDetail(k.typ, added, removed), Priority: dnsPriority(k.typ)}
+	}
 }
 
 // setDiff returns the sorted members of a that are absent from b.
