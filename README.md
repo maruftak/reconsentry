@@ -377,6 +377,56 @@ Unlike the active probes, DNS resolution only queries resolvers (not the
 target's own servers), so `--dns` is benign passive recon and runs even for
 `passive: true` scopes.
 
+### Signal correlation (`--correlate`)
+
+Each change kind above already alerts on its own. But the signal a human can't
+eyeball across hundreds of hosts is when **several distinct kinds land on the
+*same* host in one run** — a host that just appeared *and* picked up a new
+technology *and* had its CNAME flip is not three small events, it's one story:
+that target is actively moving (a migration, a launch, a soft target mid-deploy).
+`--correlate` fuses those co-occurring changes into a single high-confidence
+`HOT_TARGET` finding so the host in motion rises above the per-event churn.
+
+```bash
+reconsentry run --config scope.yaml --correlate
+```
+
+```
+🚨 HOT_TARGET  blog.acme.com    2 correlated signals: DNS_CHANGE · TAKEOVER_RISK — target likely shipping, prioritize
+🔴 HOT_TARGET  staging.acme.com 3 correlated signals: NEW_HOST · NEW_TECH (Jenkins) · interesting:staging — target likely shipping, prioritize
+```
+
+It is pure post-processing of the changes a run already computed — no extra
+network, scanning, or I/O, and fully deterministic. The originals are **kept**;
+the `HOT_TARGET` is *added* alongside them.
+
+How a host qualifies. Each contributing change kind on the host carries a weight
+(higher = a stronger sign of motion):
+
+| Signal | Weight | | Signal | Weight |
+| --- | --- | --- | --- | --- |
+| `TAKEOVER_RISK` | 4 | | `TXT_CHANGE` | 2 |
+| `DNS_CHANGE` | 3 | | `NEW_TECH` | 1 |
+| `NEW_HOST` | 2 | | `STATUS_CHANGE` | 1 |
+| `HOST_LIVE` | 2 | | `CERT_EXPIRING` | 1 |
+| `MX_CHANGE` | 2 | | `IP_CHANGE` / `HOST_GONE` | 1 |
+
+A host is fused into a `HOT_TARGET` when **both**:
+
+- it has **≥ 2 distinct** contributing change kinds — the rule that makes a
+  finding genuinely *correlated*, never a single loud signal (a lone
+  `TAKEOVER_RISK` scores 4 but already alerts on its own, so it is not re-fused); and
+- its **weighted score ≥ 4** (the default threshold).
+
+Booster: if the host name matches the [interesting-host](#interesting-host-highlighting)
+keywords (`admin`, `staging`, `api`, `jenkins`, …) it gets **+2**, so a
+bounty-likely asset crosses the bar on weaker evidence. The finding's priority is
+**critical** when any contributing change is critical (e.g. a claimable
+takeover), otherwise **high**; the detail lists the contributing signals in a
+stable, sorted order. Because `HOT_TARGET` is just another change kind, it flows
+through prioritization, every notifier, the JSON output, and the SARIF export
+exactly like the rest. With the flag off, nothing changes.
+
 ## MCP server
 
 `reconsentry mcp` runs a **read-only [MCP](https://modelcontextprotocol.io)
@@ -491,6 +541,7 @@ notify:
 | `DNS_CHANGE`     | high/med | a host's `NS` (high — delegation change) or `CNAME` (medium) record set changed (opt-in via `--dns`) |
 | `MX_CHANGE`      | medium   | a host's `MX` (mail-flow) record set changed (opt-in via `--dns`) |
 | `TXT_CHANGE`     | low/high | a host's `TXT` record set changed — high when it weakens email auth (SPF `all` softened/removed or DMARC `p=` softened/removed) (opt-in via `--dns`) |
+| `HOT_TARGET`     | critical/high | several distinct change kinds co-occurred on one host in a single run — a target in motion (opt-in via `--correlate`; critical when a contributing signal is critical, else high) |
 
 ## Roadmap
 
@@ -510,6 +561,8 @@ The planned roadmap has shipped: multi-scope configs, `history` / `assets`,
       email-spoof signals: SPF/DMARC weakening escalates `TXT_CHANGE` to high
 - [x] **read-only MCP server** (`reconsentry mcp`) — query a target's stored
       attack surface conversationally from an AI agent (no scanning, no writes)
+- [x] **signal correlation** (`--correlate`) — fuse co-occurring change kinds on
+      one host into a single `HOT_TARGET` finding (a target in motion)
 
 Next on the "deep diff" track (each a new change kind on the same engine):
 - [ ] favicon-hash change — a re-platformed host = fresh attack surface

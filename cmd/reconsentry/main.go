@@ -92,6 +92,7 @@ run flags:
   --cert-days int   CERT_EXPIRING window in days (default 30; with --cert-check)
   --takeover        check hosts for dangling DNS records; risk shows as TAKEOVER_RISK
   --dns             track CNAME/NS/MX/TXT records; changes show as DNS_CHANGE/MX_CHANGE/TXT_CHANGE (passive-safe)
+  --correlate       fuse co-occurring changes on one host into a HOT_TARGET finding (a host in motion)
   --dry-run         print changes; do not send notifications
   --json            emit results as JSON (one object per cycle) for piping
   --sarif string    write each cycle's changes to this SARIF file (CI upload)
@@ -114,6 +115,7 @@ func cmdRun(args []string) int {
 	certDays := fs.Int("cert-days", 30, "CERT_EXPIRING window in days (with --cert-check)")
 	takeover := fs.Bool("takeover", false, "check hosts for dangling DNS records; risk shows as TAKEOVER_RISK")
 	dns := fs.Bool("dns", false, "track CNAME/NS/MX/TXT records; changes show as DNS_CHANGE/MX_CHANGE/TXT_CHANGE")
+	correlateChanges := fs.Bool("correlate", false, "fuse co-occurring changes on one host into a HOT_TARGET finding")
 	dryRun := fs.Bool("dry-run", false, "print changes; do not notify")
 	jsonOut := fs.Bool("json", false, "emit run results as JSON (one object per cycle)")
 	sarifPath := fs.String("sarif", "", "write each cycle's changes to this SARIF file (for CI code-scanning upload)")
@@ -191,6 +193,7 @@ func cmdRun(args []string) int {
 				CertDays:  *certDays,
 				Takeover:  takeoverChecker,
 				DNS:       dnsChecker,
+				Correlate: *correlateChanges,
 				Notifiers: notifiers,
 				Keep:      *keep,
 				MaxHosts:  *maxHosts,
