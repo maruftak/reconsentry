@@ -6,6 +6,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-06-17
+
+### Security
+- **SSRF guard on the active-probe path**: before `httpx` connects, any target
+  that is — or resolves to — an internal address is dropped: RFC1918 / RFC4193
+  private space, loopback, link-local (including the cloud instance-metadata
+  endpoint `169.254.169.254` and IPv6 `fe80::/10`), and the unspecified address.
+  This prevents a name from passive discovery (CT logs, passive DNS) or a
+  dangling internal `CNAME` from steering a probe at `127.0.0.1`, private
+  infrastructure, or the metadata service. Literal IPs are rejected
+  deterministically; hostnames are resolved and dropped when any resolved
+  address is internal. A name that fails to resolve is kept (a flaky resolver
+  must never silently shrink the monitored surface). Skipped targets are
+  reported to stderr rather than dropped silently.
+
 ## [0.7.0] - 2026-06-17
 
 ### Added
