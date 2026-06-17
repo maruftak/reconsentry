@@ -45,6 +45,10 @@ func ContentFingerprints(ctx context.Context, hosts []string) ([]model.ContentFi
 	if err := ensure("httpx"); err != nil {
 		return nil, err
 	}
+	hosts = guardProbeTargets(ctx, hosts)
+	if len(hosts) == 0 {
+		return nil, nil
+	}
 	args := []string{
 		"-json", "-silent", "-no-color",
 		"-status-code", "-title", "-favicon", "-include-response",

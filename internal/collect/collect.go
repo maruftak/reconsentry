@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -81,6 +82,10 @@ func Httpx(ctx context.Context, hosts []string) ([]model.Asset, error) {
 	}
 	if err := ensure("httpx"); err != nil {
 		return nil, err
+	}
+	hosts = guardProbeTargets(ctx, hosts)
+	if len(hosts) == 0 {
+		return nil, nil
 	}
 	args := []string{"-json", "-silent", "-no-color", "-tech-detect", "-title", "-web-server", "-status-code", "-ip"}
 	out, err := runStdin(ctx, strings.Join(hosts, "\n"), "httpx", args...)
@@ -188,6 +193,18 @@ func isDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// guardProbeTargets applies the internal-IP SSRF guard to a probe host list,
+// returning only the public targets. Dropped hosts are reported once to stderr
+// so a skipped target is visible rather than silently swallowed.
+func guardProbeTargets(ctx context.Context, hosts []string) []string {
+	kept, dropped := publicHosts(ctx, hosts)
+	if len(dropped) > 0 {
+		fmt.Fprintf(os.Stderr, "reconsentry: skipped %d internal/private probe target(s): %s\n",
+			len(dropped), strings.Join(dropped, ", "))
+	}
+	return kept
 }
 
 func runStdin(ctx context.Context, stdin, name string, args ...string) ([]byte, error) {
